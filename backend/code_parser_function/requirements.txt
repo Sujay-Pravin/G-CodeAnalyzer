@@ -1,0 +1,6 @@
+google-cloud-storage
+google-cloud-aiplatform
+neo4j
+functions-framework
+vertexai # For LLM integration
+Flask # Only if you want to test it locally as a Flask app

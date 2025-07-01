@@ -1,0 +1,303 @@
+import functions_framework
+import logging
+import os
+from google.cloud import storage
+import json
+from typing import List, Tuple, Dict, Any
+import re
+from vertexai.generative_models import GenerativeModel
+import vertexai
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- Data Classes for Code Structure ---
+
+class CodeEntity:
+    def __init__(self, name: str, entity_type: str, file_path: str, description: str = "", properties: Dict[str, Any] = None):
+        self.name = name
+        self.entity_type = entity_type
+        self.file_path = file_path
+        self.description = description
+        self.properties = properties or {}
+    
+    def to_dict(self):
+        result = self.__dict__.copy()
+        # Only include properties if they exist and aren't empty
+        if not self.properties:
+            del result['properties']
+        return result
+
+class CodeRelationship:
+    def __init__(self, source: str, target: str, relationship_type: str, context: str = ""):
+        self.source = source
+        self.target = target
+        self.relationship_type = relationship_type
+        self.context = context
+
+    def to_dict(self):
+        return self.__dict__
+
+# --- The Core Parsing Logic ---
+
+class CodeParser:
+    def __init__(self):
+        # Initialize Vertex AI
+        project_id = os.environ.get('GCP_PROJECT_ID')
+        # Location must be set for Vertex AI to initialize correctly
+        location = os.environ.get('GCP_REGION', 'us-central1')
+        vertexai.init(project=project_id, location=location)
+        self.model = GenerativeModel('gemini-1.5-flash')
+
+        # Language detection patterns - expanded with more languages
+        self.language_patterns = {
+            'cobol': [r'\.cob$', r'\.cbl$', r'\.cpy$', r'IDENTIFICATION\s+DIVISION', r'PROGRAM-ID'],
+            'c': [r'\.c$', r'\.h$', r'#include\s*<', r'int\s+main\s*\('],
+            'cpp': [r'\.cpp$', r'\.cc$', r'\.cxx$', r'\.hpp$', r'#include\s*<iostream>', r'using\s+namespace'],
+            'python': [r'\.py$', r'import\s+', r'def\s+', r'class\s+'],
+            'java': [r'\.java$', r'public\s+class', r'import\s+java\.'],
+            'javascript': [r'\.js$', r'const\s+', r'let\s+', r'function\s+', r'export\s+'],
+            'typescript': [r'\.ts$', r'\.tsx$', r'interface\s+', r'type\s+', r'export\s+'],
+            'csharp': [r'\.cs$', r'namespace\s+', r'using\s+System', r'public\s+class'],
+            'go': [r'\.go$', r'package\s+', r'import\s+\(', r'func\s+'],
+            'ruby': [r'\.rb$', r'require\s+', r'def\s+', r'class\s+'],
+            'php': [r'\.php$', r'\<\?php', r'function\s+', r'class\s+'],
+            'jcl': [r'\.jcl$', r'//\w+\s+JOB', r'//\w+\s+EXEC']
+        }
+
+    def detect_language(self, file_path: str, content: str) -> str:
+        """Detect programming language from file path and content."""
+        for language, patterns in self.language_patterns.items():
+            score = 0
+            for pattern in patterns:
+                if re.search(pattern, file_path, re.IGNORECASE):
+                    score += 2
+                if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
+                    score += 1
+            if score >= 2:
+                return language
+        return 'unknown'
+
+    def parse_content(self, file_path: str, content: str) -> Tuple[List[CodeEntity], List[CodeRelationship]]:
+        """Parse the content of a single file."""
+        language = self.detect_language(file_path, content)
+        logger.info(f"Detected language for {file_path}: {language}")
+        
+        ai_entities, ai_relationships = self.extract_with_ai(content, language, file_path)
+        
+        if not ai_entities:
+            logger.info(f"AI returned no entities for {file_path}, falling back to regex.")
+            regex_entities, regex_relationships = self.extract_with_regex(content, language, file_path)
+            return regex_entities, regex_relationships
+        
+        return ai_entities, ai_relationships
+
+    def extract_with_ai(self, content: str, language: str, file_path: str) -> Tuple[List[CodeEntity], List[CodeRelationship]]:
+        """Extract entities and relationships using Vertex AI."""
+        try:
+            # Enhanced prompt with more specific instructions and property extraction
+            prompt = f"""
+            Analyze this {language} code and extract:
+            1. Functions/procedures/methods and their purposes, parameters, and return types
+            2. Classes/interfaces and their purposes, methods, and fields
+            3. Data structures/variables/constants with their types and purposes
+            4. External dependencies/imports/includes
+            5. Detailed relationships between components (calls, inherits, uses)
+
+            Code:
+            ```
+            {content[:8000]}
+            ```
+
+            Return as JSON:
+            {{
+                "entities": [
+                    {{
+                        "name": "entity_name", 
+                        "type": "function|class|interface|variable|module|constant", 
+                        "description": "detailed description",
+                        "params": ["param1", "param2"],  // For functions
+                        "return_type": "return type",    // For functions
+                        "fields": ["field1", "field2"],  // For classes
+                        "data_type": "type"              // For variables
+                    }}
+                ],
+                "relationships": [
+                    {{
+                        "source": "source_entity", 
+                        "target": "target_entity", 
+                        "type": "calls|inherits|uses|contains|implements", 
+                        "context": "detailed context"
+                    }}
+                ]
+            }}
+            
+            Be precise and thorough. Include all significant code elements with their details.
+            """
+            
+            response = self.model.generate_content(prompt)
+            response_text = response.text
+            
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                json_text = response_text[json_start:json_end]
+                parsed_data = json.loads(json_text)
+                
+                entities = []
+                for entity_data in parsed_data.get('entities', []):
+                    # Extract all fields including any additional properties
+                    properties = {}
+                    for key, value in entity_data.items():
+                        if key not in ['name', 'type', 'description']:
+                            properties[key] = value
+                            
+                    entities.append(CodeEntity(
+                        name=entity_data.get('name'),
+                        entity_type=entity_data.get('type'),
+                        file_path=file_path,
+                        description=entity_data.get('description', ''),
+                        properties=properties
+                    ))
+
+                relationships = [CodeRelationship(**r) for r in parsed_data.get('relationships', [])]
+                
+                return entities, relationships
+        except Exception as e:
+            logger.error(f"AI extraction failed for {file_path}: {e}")
+        return [], []
+
+    def extract_with_regex(self, content: str, language: str, file_path: str) -> Tuple[List[CodeEntity], List[CodeRelationship]]:
+        """Enhanced fallback regex-based extraction with more patterns and relationship detection."""
+        entities = []
+        relationships = []
+        
+        # Enhanced patterns dictionary with more languages and entity types
+        patterns = {
+            'cobol': {
+                'paragraph': r'^[ ]*([A-Z0-9][A-Z0-9-]*)\s*\.',
+                'variable': r'^\s*\d+\s+([A-Z0-9-]+)(?:\s+PIC|\s+PICTURE)'
+            },
+            'python': {
+                'function': r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
+                'class': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\(|:)',
+                'import': r'import\s+([a-zA-Z_][a-zA-Z0-9_.]*)'
+            },
+            'java': {
+                'method': r'(?:public|protected|private|static|\s)*\s*[\w\<\>\[\]]+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
+                'class': r'(?:public|protected|private|static|\s)*\s*(?:class|interface|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'field': r'(?:public|protected|private|static|final|\s)*\s*(?:[\w\<\>\[\]]+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|;)'
+            },
+            'javascript': {
+                'function': r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'class': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'variable': r'(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*='
+            }
+        }
+        
+        # Default patterns for unknown languages
+        default_patterns = {
+            'function': r'\b(?:function|func|def|procedure|void|int|string|bool)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
+            'class': r'\b(?:class|struct|interface)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+        }
+        
+        # Use language-specific patterns or default to basic patterns
+        lang_patterns = patterns.get(language, default_patterns)
+        
+        for entity_type, pattern in lang_patterns.items():
+            for match in re.finditer(pattern, content, re.MULTILINE if language == 'cobol' else 0):
+                name = match.group(1)
+                entities.append(CodeEntity(
+                    name=name,
+                    entity_type=entity_type,
+                    file_path=file_path,
+                    description=f"{entity_type.capitalize()} extracted by regex"
+                ))
+        
+        # Simple relationship detection based on content analysis
+        if len(entities) > 1:
+            # Find potential function calls
+            for i, entity in enumerate(entities):
+                if entity.entity_type in ('function', 'method', 'paragraph'):
+                    # Look for other function names in the content near this function
+                    for j, other_entity in enumerate(entities):
+                        if i != j and other_entity.entity_type in ('function', 'method', 'paragraph'):
+                            # Check if this function's name appears in the content
+                            if re.search(r'\b' + re.escape(other_entity.name) + r'\s*\(', content, re.MULTILINE):
+                                relationships.append(CodeRelationship(
+                                    source=entity.name,
+                                    target=other_entity.name,
+                                    relationship_type='CALLS',
+                                    context=f"Potential call detected"
+                                ))
+        
+        return entities, relationships
+
+# --- Cloud Function Entry Point ---
+
+# Initialize clients and parser globally to be reused across warm invocations
+storage_client = storage.Client()
+parser = CodeParser()
+PARSED_DATA_BUCKET = os.environ.get('PARSED_DATA_BUCKET')
+
+@functions_framework.cloud_event
+def code_parser_entrypoint(cloud_event):
+    """GCS-triggered Cloud Function to parse a single code file."""
+    data = cloud_event.data
+    bucket_name = data["bucket"]
+    file_name = data["name"]
+
+    logger.info(f"Processing {file_name} from {bucket_name}.")
+
+    try:
+        # Download file content
+        source_bucket = storage_client.bucket(bucket_name)
+        blob = source_bucket.blob(file_name)
+        if not blob.exists():
+            logger.error(f"File {file_name} does not exist.")
+            return
+
+        raw_content = blob.download_as_bytes()
+        content = ""
+        for encoding in ['utf-8', 'latin-1', 'cp1252']:
+            try:
+                content = raw_content.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            content = raw_content.decode('utf-8', errors='replace')
+
+        # Parse the code
+        entities, relationships = parser.parse_content(file_name, content)
+        
+        # Prepare data for upload
+        repo_id = file_name.split('/')[1] if file_name.startswith('cloned_repos/') else 'unknown_repo'
+        output_data = {
+            "repo_id": repo_id,
+            "filename": file_name,
+            "entities": [e.to_dict() for e in entities],
+            "relationships": [r.to_dict() for r in relationships]
+        }
+        
+        # Upload results to the parsed data bucket
+        if not PARSED_DATA_BUCKET:
+            raise ValueError("PARSED_DATA_BUCKET environment variable not set.")
+        
+        destination_bucket = storage_client.bucket(PARSED_DATA_BUCKET)
+        # Create a unique name for the JSON output file
+        destination_blob_name = f'parsed_data/{repo_id}/{os.path.basename(file_name)}.json'
+        destination_blob = destination_bucket.blob(destination_blob_name)
+        
+        destination_blob.upload_from_string(
+            json.dumps(output_data, indent=2),
+            content_type='application/json'
+        )
+        
+        logger.info(f"Successfully parsed {file_name} and uploaded results to {destination_blob_name}.")
+
+    except Exception as e:
+        logger.error(f"Failed to process {file_name}: {e}", exc_info=True)
+        raise
