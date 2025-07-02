@@ -614,6 +614,60 @@ def check_processing_status():
         "total_files": status.get("total_files", 0)
     })
 
+@app.route('/api/get-file-content', methods=['POST'])
+def get_file_content():
+    """Fetch the content of a specific file from a cloned repository"""
+    try:
+        data = request.get_json()
+        repo_id = data.get('repo_id')
+        file_path = data.get('file_path')
+        
+        if not repo_id or not file_path:
+            return jsonify({
+                'success': False,
+                'message': 'Missing repo_id or file_path parameter'
+            }), 400
+            
+        # Check if repository exists in our cloned repos
+        if repo_id not in CLONED_REPOS:
+            return jsonify({
+                'success': False,
+                'message': 'Repository not found. It may have been cleaned up or never cloned.'
+            }), 404
+            
+        temp_repo_path = CLONED_REPOS[repo_id]
+        full_file_path = os.path.join(temp_repo_path, file_path)
+        
+        if not os.path.exists(full_file_path):
+            return jsonify({
+                'success': False,
+                'message': f'File not found: {file_path}'
+            }), 404
+            
+        # Read file content
+        try:
+            with open(full_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            return jsonify({
+                'success': True,
+                'content': content,
+                'file_path': file_path
+            })
+        except UnicodeDecodeError:
+            # If the file is binary, return an error
+            return jsonify({
+                'success': False,
+                'message': 'File appears to be binary and cannot be displayed'
+            }), 415
+        
+    except Exception as e:
+        print(f"Error getting file content: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error retrieving file content: {str(e)}'
+        }), 500
+
 # Basic Flask run setup for local development
 if __name__ == '__main__':
     # Ensure a default GCS bucket name for local testing if not set in env

@@ -26,6 +26,11 @@ function App() {
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [repoId, setRepoId] = useState(null);
 
+  // State for file viewer modal
+  const [fileViewerOpen, setFileViewerOpen] = useState(false);
+  const [viewingFile, setViewingFile] = useState({ path: '', content: '' });
+  const [isLoadingFileContent, setIsLoadingFileContent] = useState(false);
+
   const [chatQuery, setChatQuery] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -391,6 +396,47 @@ function App() {
     return result;
   };
 
+  // Function to fetch file contents
+  const handleViewFile = async (filePath, e) => {
+    e.stopPropagation(); // Prevent file selection when clicking view button
+    
+    setViewingFile({ path: filePath, content: '' });
+    setIsLoadingFileContent(true);
+    setFileViewerOpen(true);
+    
+    try {
+      const response = await axios.post(`${BACKEND_BASE_URL}/get-file-content`, {
+        repo_id: repoId,
+        file_path: filePath
+      });
+      
+      if (response.data.success) {
+        setViewingFile({
+          path: filePath,
+          content: response.data.content
+        });
+      } else {
+        setViewingFile({
+          path: filePath,
+          content: 'Error: Could not load file content.'
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching file content:', error);
+      setViewingFile({
+        path: filePath,
+        content: `Error: ${error.message || 'Failed to load file content.'}`
+      });
+    } finally {
+      setIsLoadingFileContent(false);
+    }
+  };
+  
+  const closeFileViewer = () => {
+    setFileViewerOpen(false);
+    setViewingFile({ path: '', content: '' });
+  };
+
   // Helper function to render folder structure recursively
   const renderFolderTree = (structure, path = "", indent = 0) => {
     return Object.entries(structure).map(([key, value]) => {
@@ -398,8 +444,8 @@ function App() {
         // It's a file
         return (
           <li key={value} 
-            className={`file-item ${selectedFiles.has(value) ? 'selected' : ''}`}
-            onClick={() => handleFileSelect(value)}>
+            className={`file-item ${selectedFiles.has(value) ? 'selected' : ''}`}>
+            <div className="file-item-inner" onClick={() => handleFileSelect(value)}>
             <input
               type="checkbox"
               className="file-checkbox"
@@ -408,6 +454,17 @@ function App() {
               onChange={(e) => e.stopPropagation()}
             />
             <span className="file-name">{key}</span>
+            </div>
+            <button 
+              className="view-file-btn" 
+              onClick={(e) => handleViewFile(value, e)}
+              title="View file content"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 5C7.45 5 3.73 7.94 2 12C3.73 16.06 7.45 19 12 19C16.55 19 20.27 16.06 22 12C20.27 7.94 16.55 5 12 5ZM12 17C8.45 17 5.42 14.88 4 12C5.42 9.12 8.45 7 12 7C15.55 7 18.58 9.12 20 12C18.58 14.88 15.55 17 12 17Z" fill="currentColor"/>
+                <path d="M12 9C10.34 9 9 10.34 9 12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12C15 10.34 13.66 9 12 9Z" fill="currentColor"/>
+              </svg>
+            </button>
           </li>
         );
       } else {
@@ -650,8 +707,8 @@ function App() {
                     // Fallback to old file list if structure is empty
                     filteredFiles.map((file, index) => (
                       <li key={index} 
-                        className={`file-item ${selectedFiles.has(file) ? 'selected' : ''}`}
-                        onClick={() => handleFileSelect(file)}>
+                        className={`file-item ${selectedFiles.has(file) ? 'selected' : ''}`}>
+                        <div className="file-item-inner" onClick={() => handleFileSelect(file)}>
                         <input
                           type="checkbox"
                           className="file-checkbox"
@@ -660,6 +717,17 @@ function App() {
                           onChange={(e) => e.stopPropagation()}
                         />
                         <span className="file-name">{file}</span>
+                        </div>
+                        <button 
+                          className="view-file-btn" 
+                          onClick={(e) => handleViewFile(file, e)}
+                          title="View file content"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 5C7.45 5 3.73 7.94 2 12C3.73 16.06 7.45 19 12 19C16.55 19 20.27 16.06 22 12C20.27 7.94 16.55 5 12 5ZM12 17C8.45 17 5.42 14.88 4 12C5.42 9.12 8.45 7 12 7C15.55 7 18.58 9.12 20 12C18.58 14.88 15.55 17 12 17Z" fill="currentColor"/>
+                            <path d="M12 9C10.34 9 9 10.34 9 12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12C15 10.34 13.66 9 12 9Z" fill="currentColor"/>
+                          </svg>
+                        </button>
                       </li>
                     ))
                   )}
@@ -685,6 +753,49 @@ function App() {
             </div>
           </>
         )}
+      </div>
+    );
+  };
+
+  // File viewer modal component
+  const renderFileViewerModal = () => {
+    if (!fileViewerOpen) return null;
+    
+    // Determine file extension for syntax highlighting
+    const fileExtension = viewingFile.path.split('.').pop()?.toLowerCase() || '';
+    
+    return (
+      <div className="modal-overlay" onClick={closeFileViewer}>
+        <div className="file-viewer-modal" onClick={e => e.stopPropagation()}>
+          <div className="file-viewer-header">
+            <h3>{viewingFile.path}</h3>
+            <button className="close-modal-btn" onClick={closeFileViewer} aria-label="Close">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <div className="file-viewer-content">
+            {isLoadingFileContent ? (
+              <div className="file-content-loading">
+                <div className="spinner">
+                  <div className="spinner-dot"></div>
+                  <div className="spinner-dot"></div>
+                  <div className="spinner-dot"></div>
+                  <div className="spinner-dot"></div>
+                  <div className="spinner-dot"></div>
+                </div>
+                <p>Loading file content...</p>
+              </div>
+            ) : (
+              <pre className={`file-content language-${fileExtension}`}>
+                <code>
+                  {viewingFile.content}
+                </code>
+              </pre>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -804,19 +915,18 @@ function App() {
   };
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${theme}-theme`}>
       {renderHeader()}
       <main className="main-content">
         {renderContent()}
       </main>
       
+      {/* Confirmation Dialog */}
       {showConfirmDialog && (
         <div className="confirm-dialog">
           <div className="dialog-content">
-            <h2 className="dialog-title">Start New Analysis?</h2>
-            <p>
-              This will clear all current data and conversation history. Are you sure you want to continue?
-            </p>
+            <h3 className="dialog-title">Start New Analysis?</h3>
+            <p>This will clear all current data and conversations. Are you sure?</p>
             <div className="dialog-buttons">
               <button 
                 className="btn dialog-cancel"
@@ -830,12 +940,15 @@ function App() {
                 onClick={handleConfirmStartNew}
                 disabled={isClearing}
               >
-                {isClearing ? 'Clearing...' : 'Yes, start new'}
+                {isClearing ? 'Clearing...' : 'Yes, Start New'}
               </button>
             </div>
           </div>
         </div>
       )}
+      
+      {/* File Viewer Modal */}
+      {renderFileViewerModal()}
     </div>
   );
 }

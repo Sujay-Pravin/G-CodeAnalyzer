@@ -322,10 +322,18 @@
 .file-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0.75rem 1rem;
   cursor: pointer;
   transition: background-color var(--transition-base);
   border-bottom: 1px solid;
+}
+
+.file-item-inner {
+  display: flex;
+  align-items: center;
+  flex-grow: 1;
+  cursor: pointer;
 }
 
 .light-theme .file-item {
@@ -391,6 +399,167 @@
   margin-left: 1.75rem;
 }
 
+/* View file button */
+.view-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: inherit;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.view-file-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.light-theme .view-file-btn:hover {
+  background-color: rgba(41, 98, 255, 0.1);
+  color: var(--primary-light);
+}
+
+.dark-theme .view-file-btn:hover {
+  background-color: rgba(106, 183, 255, 0.1);
+  color: var(--primary-dark);
+}
+
+/* File viewer modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.file-viewer-modal {
+  width: 90%;
+  max-width: 1000px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: scaleIn 0.2s ease-out;
+}
+
+.light-theme .file-viewer-modal {
+  background-color: var(--surface-light);
+  border: 1px solid var(--border-light);
+}
+
+.dark-theme .file-viewer-modal {
+  background-color: var(--surface-dark);
+  border: 1px solid var(--border-dark);
+}
+
+.file-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid;
+}
+
+.light-theme .file-viewer-header {
+  border-color: var(--border-light);
+}
+
+.dark-theme .file-viewer-header {
+  border-color: var(--border-dark);
+}
+
+.file-viewer-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+}
+
+.close-modal-btn {
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.light-theme .close-modal-btn:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.dark-theme .close-modal-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.file-viewer-content {
+  padding: 1rem;
+  overflow-y: auto;
+  flex: 1;
+  max-height: calc(90vh - 60px);
+}
+
+.file-content {
+  margin: 0;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-md);
+}
+
+.light-theme .file-content {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.dark-theme .file-content {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.file-content-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 /* Chat view styles */
 .chat-container {
   display: flex;
@@ -428,7 +597,7 @@
 }
 
 .dark-theme .user-message {
-  background: linear-gradient(45deg, var(--primary-dark), var(--secondary-dark));
+  background: var(--secondary-dark);
 }
 
 .ai-message {
@@ -626,6 +795,11 @@ code {
   .file-controls {
     flex-direction: column;
     align-items: stretch;
+  }
+  
+  .file-viewer-modal {
+    width: 95%;
+    max-height: 95vh;
   }
 }
 
@@ -895,4 +1069,14 @@ code {
 .dark-theme select:focus {
   border-color: var(--primary-dark);
   box-shadow: 0 0 0 2px rgba(106, 183, 255, 0.15);
+}
+
+/* Animation for fade in effects */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
