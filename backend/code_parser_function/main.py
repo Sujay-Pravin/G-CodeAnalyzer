@@ -248,84 +248,73 @@ class CodeParser:
                 'program': r'PROGRAM-ID.\s+([A-Z0-9-]+)',
                 'business_rule': r'^\s*IF\s+(.+?)\s+THEN'
             },
+            'c': {
+                'function': r'(?:^|\s)(?:static\s+)?(?:void|int|char|float|double|long|size_t|struct\s+\w+|\w+_t)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;]*\)\s*\{',
+                'variable': r'(?:^|\s)(?:static\s+)?(?:int|char|float|double|long|size_t|\w+_t)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|;|\[)',
+                'struct': r'struct\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\{',
+                'include': r'#include\s*[<"]([^>"]+)[>"]',
+                'define': r'#define\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+            },
+            'cpp': {
+                'function': r'(?:^|\s)(?:static\s+)?(?:void|int|char|float|double|long|size_t|bool|auto|std::\w+|struct\s+\w+|\w+::\w+|\w+_t)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;]*\)\s*(?:const\s*)?\{',
+                'method': r'(?:^|\s)(?:virtual\s+)?(?:void|int|char|float|double|long|size_t|bool|auto|std::\w+|\w+::\w+|\w+_t)\s+([a-zA-Z_][a-zA-Z0-9_<>]*)::\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;]*\)\s*(?:const\s*)?\{',
+                'class': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?::|final|\{)',
+                'variable': r'(?:^|\s)(?:static\s+)?(?:int|char|float|double|long|size_t|bool|auto|std::\w+|\w+::\w+|\w+_t)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|;|\[)',
+                'struct': r'struct\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\{',
+                'include': r'#include\s*[<"]([^>"]+)[>"]',
+                'define': r'#define\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+            },
             'python': {
                 'function': r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
                 'class': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\(|:)',
-                'import': r'import\s+([a-zA-Z_][a-zA-Z0-9_.]*)',
-                'from_import': r'from\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+import',
-                'variable': r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[^\(]',
-                'input_operation': r'input\s*\(',
-                'output_operation': r'print\s*\(',
-                'loop': r'(?:for|while)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'branch': r'if\s+([^:]+):',
-                'with_resource': r'with\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*):',
-                'try_except': r'try\s*:'
+                'method': r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*self',
+                'variable': r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?!.*def\s)',
+                'import': r'import\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:\s+as\s+[a-zA-Z_][a-zA-Z0-9_]*)?$',
+                'from_import': r'from\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+import'
             },
             'java': {
-                'method': r'(?:public|protected|private|static|\s)*\s*[\w\<\>\[\]]+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-                'class': r'(?:public|protected|private|static|\s)*\s*(?:class|interface|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'field': r'(?:public|protected|private|static|final|\s)*\s*(?:[\w\<\>\[\]]+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|;)',
-                'import': r'import\s+([a-zA-Z_][a-zA-Z0-9_.]*);',
-                'interface': r'interface\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'extends': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+extends\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'implements': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+implements\s+([a-zA-Z_][a-zA-Z0-9_,\s]*)',
-                'annotation': r'@([a-zA-Z_][a-zA-Z0-9_]*)',
-                'try_catch': r'try\s*\{'
+                'function': r'(?:public|private|protected|static|\s)+[\w\<\>\[\],\s]+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^\)]*\)\s*(?:throws\s+[\w\s,]+)?\s*\{',
+                'class': r'(?:public|private|protected)\s+class\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'interface': r'(?:public|private|protected)\s+interface\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'variable': r'(?:public|private|protected|static|\s)+(?:final\s+)?[\w\<\>\[\],\s]+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|;)',
+                'import': r'import\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:\s*\*)?;'
             },
             'javascript': {
-                'function': r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'arrow_function': r'const\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*\([^)]*\)\s*=>',
+                'function': r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
                 'class': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'method': r'(?:async\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{',
+                'arrow_function': r'(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>',
                 'variable': r'(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=',
-                'import': r'import\s+(?:{[^}]*}|[^;]+)\s+from\s+[\'"]([^\'"]+)[\'"]',
-                'export': r'export\s+(?:default\s+)?(?:function|class|const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'method': r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*{',
-                'promise': r'new\s+Promise\s*\(',
-                'async_function': r'async\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'try_catch': r'try\s*{',
-                'fetch': r'fetch\s*\('
+                'import': r'import\s+(?:{[^}]*}|[^{;]*)\s+from\s+[\'"]([^\'"]+)[\'"]'
             },
-            'c': {
-                'function': r'(?:static|extern|\s)*\s*[\w\*\s]+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^\;]*\)\s*\{',
-                'struct': r'struct\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\{',
-                'define': r'#define\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'include': r'#include\s+[<"]([^>"]+)[>"]',
-                'system_include': r'#include\s+<([^>]+)>',
-                'project_include': r'#include\s+"([^"]+)"',
-                'variable': r'(?:[\w\*\s]+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|;)',
-                'malloc': r'malloc\s*\(',
-                'free': r'free\s*\(',
-                'typedef': r'typedef\s+struct\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'enum': r'enum\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+            'typescript': {
+                'function': r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\<?\s*[^>]*\>?\s*\(',
+                'class': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'interface': r'interface\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'method': r'(?:async\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\<?\s*[^>]*\>?\s*\([^)]*\)\s*\{',
+                'arrow_function': r'(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>',
+                'variable': r'(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:?',
+                'type': r'type\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=',
+                'import': r'import\s+(?:{[^}]*}|[^{;]*)\s+from\s+[\'"]([^\'"]+)[\'"]'
             },
-            'sql': {
-                'table': r'CREATE\s+TABLE\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'view': r'CREATE\s+VIEW\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'procedure': r'CREATE\s+PROCEDURE\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'function': r'CREATE\s+FUNCTION\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'trigger': r'CREATE\s+TRIGGER\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'index': r'CREATE\s+INDEX\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'column': r'ALTER\s+TABLE\s+[a-zA-Z_][a-zA-Z0-9_]*\s+ADD\s+COLUMN\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                'foreign_key': r'FOREIGN\s+KEY\s+(?:\([^)]+\))?\s+REFERENCES\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+            'unknown': {
+                'function': r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'class': r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                'variable': r'(?:var|let|const)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
             }
         }
         
-        # Default patterns for unknown languages
-        default_patterns = {
-            'function': r'\b(?:function|func|def|procedure|void|int|string|bool)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-            'class': r'\b(?:class|struct|interface)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-            'variable': r'\b(?:var|let|const|int|string|bool|float|double)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-            'import': r'\b(?:import|include|require|using)\s+([a-zA-Z_][a-zA-Z0-9_\.\*]+)',
-            'file_operation': r'\b(?:open|fopen|read|write|readFile|writeFile|fs\.read|fs\.write)\s*\('
-        }
+        # Get patterns for the detected language or use generic ones
+        lang_patterns = patterns.get(language, patterns['unknown'])
         
-        # Use language-specific patterns or default to basic patterns
-        lang_patterns = patterns.get(language, default_patterns)
+        # Extract filename for unique entity naming
+        filename = os.path.basename(file_path)
+        filename_base = os.path.splitext(filename)[0]
         
-        # Special entity for the file itself
+        # Create a file entity first
         file_entity = CodeEntity(
-            name=os.path.basename(file_path),
-            entity_type='module',
+            name=filename,
+            entity_type='source_file',
             file_path=file_path,
             description=f"Source file {file_path}",
             properties={
@@ -336,11 +325,8 @@ class CodeParser:
         )
         entities.append(file_entity)
         
-        # Handle C/C++ specific header detection
-        if language in ('c', 'cpp') and file_path.endswith(('.h', '.hpp', '.hxx')):
-            file_entity.entity_type = 'header_file'
-            file_entity.description = f"Header file {file_path}"
-            
+        # No special handling for header files to avoid confusion
+        
         # Extract entities based on patterns
         for entity_type, pattern in lang_patterns.items():
             for match in re.finditer(pattern, content, re.MULTILINE if language == 'cobol' else re.IGNORECASE | re.MULTILINE):
@@ -358,51 +344,43 @@ class CodeParser:
                 if len(name) <= 1 and not name.isalnum():
                     continue
                 
+                # Create a unique name by appending the filename
+                unique_name = f"{name}-{filename_base}"
+                
                 # Special handling for includes in C/C++
-                if entity_type in ('include', 'system_include', 'project_include'):
-                    # Create different entity types based on include type
-                    if entity_type == 'system_include' or (entity_type == 'include' and match.group(0).strip().startswith('#include <')):
-                        include_entity = CodeEntity(
-                            name=name,
-                            entity_type='system_header',
-                            file_path=file_path,
-                            description=f"System header {name}",
-                            properties={
-                                "line_number": line_start,
-                                "include_type": "system",
-                                "include_syntax": match.group(0).strip()
-                            }
-                        )
-                        entities.append(include_entity)
-                        
-                        # Add include relationship between file and system header
-                        relationships.append(CodeRelationship(
-                            source=file_entity.name,
-                            target=name,
-                            relationship_type='includes',
-                            context=f"{file_path} includes system header {name}"
-                        ))
-                    elif entity_type == 'project_include' or (entity_type == 'include' and match.group(0).strip().startswith('#include "')):
-                        include_entity = CodeEntity(
-                            name=name,
-                            entity_type='project_header',
-                            file_path=file_path,
-                            description=f"Project header {name}",
-                            properties={
-                                "line_number": line_start,
-                                "include_type": "project",
-                                "include_syntax": match.group(0).strip()
-                            }
-                        )
-                        entities.append(include_entity)
-                        
-                        # Add include relationship between file and project header
-                        relationships.append(CodeRelationship(
-                            source=file_entity.name,
-                            target=name,
-                            relationship_type='includes',
-                            context=f"{file_path} includes project header {name}"
-                        ))
+                if entity_type in ('include', 'system_include', 'project_include', 'import', 'from_import'):
+                    # Create a simpler include entity type, without distinguishing between system/project headers
+                    is_standard_library = False
+                    
+                    # Try to detect if this is a standard library import
+                    if language in ('c', 'cpp'):
+                        is_standard_library = '<' in match.group(0) and '>' in match.group(0)
+                    elif language == 'python':
+                        standard_libs = ['os', 'sys', 're', 'math', 'json', 'time', 'datetime', 'random', 
+                                         'collections', 'itertools', 'functools', 'threading', 'multiprocessing']
+                        is_standard_library = name.split('.')[0] in standard_libs
+                    
+                    include_entity = CodeEntity(
+                        name=name,  # Keep original name for imports
+                        entity_type='import',
+                        file_path=file_path,
+                        description=f"Import {name} in {filename}",
+                        properties={
+                            "line_number": line_start,
+                            "include_syntax": match.group(0).strip(),
+                            "is_standard_library": is_standard_library,
+                            "source_file": filename
+                        }
+                    )
+                    entities.append(include_entity)
+                    
+                    # Add import relationship between file and import
+                    relationships.append(CodeRelationship(
+                        source=filename,  # Use filename directly
+                        target=name,      # Use original import name
+                        relationship_type='imports',
+                        context=f"{filename} imports {name}"
+                    ))
                     continue
                     
                 # Get surrounding code for description
@@ -412,178 +390,118 @@ class CodeParser:
                 
                 # Add entity with enhanced metadata
                 entity = CodeEntity(
-                    name=name,
+                    name=unique_name,  # Use the unique name with filename
                     entity_type=entity_type,
                     file_path=file_path,
-                    description=f"{entity_type.capitalize()} '{name}' in {os.path.basename(file_path)}",
+                    description=f"{entity_type.capitalize()} '{name}' in {filename}",
                     properties={
+                        "original_name": name,  # Store the original name for reference
                         "line_number": line_start,
                         "code_length": line_end - line_start,
-                        "context_sample": context_code[:200] if len(context_code) > 200 else context_code
+                        "context_sample": context_code[:200] if len(context_code) > 200 else context_code,
+                        "source_file": filename
                     }
                 )
                 entities.append(entity)
                 
                 # Add relationship to file
                 relationships.append(CodeRelationship(
-                    source=file_entity.name,
-                    target=name,
+                    source=filename,
+                    target=unique_name,
                     relationship_type='defines',
-                    context=f"File {os.path.basename(file_path)} defines {entity_type} {name}"
+                    context=f"File {filename} defines {entity_type} {name}"
                 ))
-                
-                # For Python imports, add specific relationship
-                if language == 'python' and entity_type in ('import', 'from_import'):
-                    relationships.append(CodeRelationship(
-                        source=file_entity.name,
-                        target=name,
-                        relationship_type='imports',
-                        context=f"Python module {file_entity.name} imports {name}"
-                    ))
         
-        # Enhanced relationship detection - more sophisticated
+        # Enhanced relationship detection - more sophisticated, but now with unique names
         if len(entities) > 1:
             # Process each entity to find potential relationships
             for i, entity in enumerate(entities):
+                # Skip the file entity and import entities for relationship detection
+                if entity.entity_type in ('source_file', 'import'):
+                    continue
+                    
                 if entity.entity_type in ('function', 'method', 'paragraph'):
-                    # Find potential function calls
+                    # Find potential function calls - need to match on original names
+                    original_name = entity.properties.get('original_name', entity.name)
+                    
                     for j, other_entity in enumerate(entities):
                         if i != j and other_entity.entity_type in ('function', 'method', 'paragraph'):
+                            other_original_name = other_entity.properties.get('original_name', other_entity.name)
+                            
+                            # Only consider entities in the same file to prevent cross-file confusion
+                            if entity.properties.get('source_file') != other_entity.properties.get('source_file'):
+                                continue
+                                
                             # Check if this function's name appears in the content
                             # Add word boundary to prevent partial matches
-                            pattern = r'\b' + re.escape(other_entity.name) + r'\s*\('
+                            pattern = r'\b' + re.escape(other_original_name) + r'\s*\('
                             if re.search(pattern, content, re.MULTILINE):
                                 relationships.append(CodeRelationship(
                                     source=entity.name,
                                     target=other_entity.name,
                                     relationship_type='calls',
-                                    context=f"Function {entity.name} calls {other_entity.name}"
+                                    context=f"Function {original_name} calls {other_original_name} in {filename}"
                                 ))
                     
                     # Detect variable usage within functions
                     for j, other_entity in enumerate(entities):
                         if i != j and other_entity.entity_type in ('variable', 'constant'):
+                            # Only consider entities in the same file
+                            if entity.properties.get('source_file') != other_entity.properties.get('source_file'):
+                                continue
+                                
+                            other_original_name = other_entity.properties.get('original_name', other_entity.name)
+                            
                             # Find start and end of function body
-                            function_pattern = r'(?:function|def|void|int|string|bool)\s+' + re.escape(entity.name) + r'\s*\([^{]*\)\s*\{(.*?)\}'
+                            function_pattern = r'(?:function|def|void|int|string|bool)\s+' + re.escape(original_name) + r'\s*\([^{]*\)\s*\{(.*?)\}'
                             function_match = re.search(function_pattern, content, re.DOTALL | re.MULTILINE)
                             
                             if function_match:
                                 function_body = function_match.group(1)
                                 # Check if variable is used in function body
-                                var_pattern = r'\b' + re.escape(other_entity.name) + r'\b'
+                                var_pattern = r'\b' + re.escape(other_original_name) + r'\b'
                                 if re.search(var_pattern, function_body, re.MULTILINE):
                                     relationships.append(CodeRelationship(
                                         source=entity.name,
                                         target=other_entity.name,
                                         relationship_type='uses',
-                                        context=f"Function {entity.name} uses variable {other_entity.name}"
+                                        context=f"Function {original_name} uses variable {other_original_name} in {filename}"
                                     ))
                 
-                # Check for class inheritance
+                # Check for class inheritance - only within the same file
                 if entity.entity_type == 'class':
+                    original_name = entity.properties.get('original_name', entity.name)
+                    
                     # Different patterns for different languages
                     inheritance_patterns = {
-                        'python': r'class\s+' + re.escape(entity.name) + r'\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)',
-                        'java': r'class\s+' + re.escape(entity.name) + r'\s+extends\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        'javascript': r'class\s+' + re.escape(entity.name) + r'\s+extends\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        'php': r'class\s+' + re.escape(entity.name) + r'\s+extends\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        'cpp': r'class\s+' + re.escape(entity.name) + r'\s*:\s*(?:public|protected|private)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+                        'python': r'class\s+' + re.escape(original_name) + r'\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)',
+                        'java': r'class\s+' + re.escape(original_name) + r'\s+extends\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                        'javascript': r'class\s+' + re.escape(original_name) + r'\s+extends\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                        'php': r'class\s+' + re.escape(original_name) + r'\s+extends\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                        'cpp': r'class\s+' + re.escape(original_name) + r'\s*:\s*(?:public|protected|private)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
                     }
                     
                     pattern = inheritance_patterns.get(language)
                     if pattern:
                         inherit_match = re.search(pattern, content, re.MULTILINE)
                         if inherit_match:
-                            parent_class = inherit_match.group(1)
-                            # See if we have this parent class in our entities
-                            parent_entity = next((e for e in entities if e.name == parent_class), None)
+                            parent_class_name = inherit_match.group(1)
+                            # Look for parent class in the same file
+                            parent_entity = None
+                            for e in entities:
+                                if (e.entity_type == 'class' and 
+                                    e.properties.get('original_name') == parent_class_name and
+                                    e.properties.get('source_file') == entity.properties.get('source_file')):
+                                    parent_entity = e
+                                    break
+                                    
                             if parent_entity:
                                 relationships.append(CodeRelationship(
                                     source=entity.name,
                                     target=parent_entity.name,
                                     relationship_type='inherits',
-                                    context=f"Class {entity.name} inherits from {parent_entity.name}"
+                                    context=f"Class {original_name} inherits from {parent_entity.properties.get('original_name')} in {filename}"
                                 ))
-                
-                # Check for import/include relationships
-                if entity.entity_type == 'import':
-                    # Add a relationship from the file to the imported module
-                    relationships.append(CodeRelationship(
-                        source=file_entity.name,
-                        target=entity.name,
-                        relationship_type='imports',
-                        context=f"File {os.path.basename(file_path)} imports {entity.name}"
-                    ))
-                
-                # Detect file operations for reads_from/writes_to relationships
-                if entity.entity_type in ('function', 'method') and language == 'python':
-                    # Look for open() with 'r' mode - reading
-                    read_pattern = r'open\s*\([^,]*,\s*["\']r["\']'
-                    if re.search(read_pattern, content, re.MULTILINE):
-                        relationships.append(CodeRelationship(
-                            source=entity.name,
-                            target='file_system',  # Generic target
-                            relationship_type='reads_from',
-                            context=f"Function {entity.name} reads from files"
-                        ))
-                    
-                    # Look for open() with 'w' or 'a' mode - writing
-                    write_pattern = r'open\s*\([^,]*,\s*["\'][wa]["\']'
-                    if re.search(write_pattern, content, re.MULTILINE):
-                        relationships.append(CodeRelationship(
-                            source=entity.name,
-                            target='file_system',  # Generic target
-                            relationship_type='writes_to',
-                            context=f"Function {entity.name} writes to files"
-                        ))
-                
-                # Detect database operations
-                if language in ('python', 'java', 'javascript', 'php'):
-                    # Look for SQL operations
-                    sql_patterns = {
-                        'select': r'(?:SELECT|select)\s+.*?\s+(?:FROM|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        'insert': r'(?:INSERT|insert)\s+(?:INTO|into)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        'update': r'(?:UPDATE|update)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        'delete': r'(?:DELETE|delete)\s+(?:FROM|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
-                    }
-                    
-                    if entity.entity_type in ('function', 'method'):
-                        # Find function body
-                        function_start = content.find(entity.name)
-                        if function_start >= 0:
-                            function_text = content[function_start:function_start+1000]  # Look at a reasonable chunk
-                            
-                            # Check for SQL operations
-                            for op_type, pattern in sql_patterns.items():
-                                for match in re.finditer(pattern, function_text, re.MULTILINE):
-                                    table_name = match.group(1)
-                                    # Create table entity if it doesn't exist
-                                    table_entity = next((e for e in entities if e.name == table_name and e.entity_type == 'database_table'), None)
-                                    if not table_entity:
-                                        table_entity = CodeEntity(
-                                            name=table_name,
-                                            entity_type='database_table',
-                                            file_path=file_path,
-                                            description=f"Database table {table_name} referenced in {file_path}",
-                                            properties={"referenced_in": [entity.name]}
-                                        )
-                                        entities.append(table_entity)
-                                    
-                                    # Add appropriate relationship
-                                    if op_type in ('select'):
-                                        relationships.append(CodeRelationship(
-                                            source=entity.name,
-                                            target=table_name,
-                                            relationship_type='reads_from',
-                                            context=f"Function {entity.name} reads from table {table_name}"
-                                        ))
-                                    else:  # insert, update, delete
-                                        relationships.append(CodeRelationship(
-                                            source=entity.name,
-                                            target=table_name,
-                                            relationship_type='writes_to',
-                                            context=f"Function {entity.name} writes to table {table_name}"
-                                        ))
         
         return entities, relationships
 
@@ -611,6 +529,13 @@ def code_parser_entrypoint(cloud_event):
             logger.error(f"File {file_name} does not exist.")
             return
 
+        # Get metadata to extract repo_id and file information
+        metadata = blob.metadata or {}
+        repo_id_from_metadata = metadata.get('repo_id')
+        file_path_from_metadata = metadata.get('file_path')
+        
+        logger.info(f"File metadata: {metadata}")
+        
         raw_content = blob.download_as_bytes()
         content = ""
         for encoding in ['utf-8', 'latin-1', 'cp1252']:
@@ -625,11 +550,20 @@ def code_parser_entrypoint(cloud_event):
         # Parse the code
         entities, relationships = parser.parse_content(file_name, content)
         
-        # Prepare data for upload
-        repo_id = file_name.split('/')[1] if file_name.startswith('cloned_repos/') else 'unknown_repo'
+        # Prepare data for upload with improved repo_id extraction
+        repo_id = None
+        if repo_id_from_metadata:
+            repo_id = repo_id_from_metadata
+            logger.info(f"Using repo_id from metadata: {repo_id}")
+        else:
+            # Extract repo_id from path if format is cloned_repos/REPO_ID/...
+            repo_id = file_name.split('/')[1] if file_name.startswith('cloned_repos/') and len(file_name.split('/')) > 2 else 'unknown_repo'
+            logger.info(f"Extracted repo_id from path: {repo_id}")
+        
         output_data = {
             "repo_id": repo_id,
             "filename": file_name,
+            "original_path": file_path_from_metadata or file_name,
             "entities": [e.to_dict() for e in entities],
             "relationships": [r.to_dict() for r in relationships]
         }
@@ -643,12 +577,19 @@ def code_parser_entrypoint(cloud_event):
         destination_blob_name = f'parsed_data/{repo_id}/{os.path.basename(file_name)}.json'
         destination_blob = destination_bucket.blob(destination_blob_name)
         
+        # Set metadata on the destination blob to help with identification
+        destination_blob.metadata = {
+            "repo_id": repo_id,
+            "original_file": file_name,
+            "file_path": file_path_from_metadata or file_name
+        }
+        
         destination_blob.upload_from_string(
             json.dumps(output_data, indent=2),
             content_type='application/json'
         )
         
-        logger.info(f"Successfully parsed {file_name} and uploaded results to {destination_blob_name}.")
+        logger.info(f"Successfully parsed {file_name} and uploaded results to {destination_blob_name} with metadata: {destination_blob.metadata}.")
 
     except Exception as e:
         logger.error(f"Failed to process {file_name}: {e}", exc_info=True)

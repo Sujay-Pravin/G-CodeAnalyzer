@@ -66,13 +66,9 @@ def ingest_data_to_neo4j(parsed_data, session):
     # Determine file type based on extension
     file_extension = os.path.splitext(filename)[1].lower()
     
-    # Classify file type
-    file_type = "Module"
-    if file_extension in ['.h', '.hpp', '.hxx']:
-        file_type = "HeaderFile"
-    elif file_extension in ['.c', '.cpp', '.cc', '.cxx']:
-        file_type = "SourceFile"
-    elif file_extension in ['.py']:
+    # Classify file type - simplified to remove header file confusion
+    file_type = "SourceFile"
+    if file_extension in ['.py']:
         file_type = "PythonModule"
     elif file_extension in ['.js', '.jsx', '.ts', '.tsx']:
         file_type = "JavaScriptModule"
@@ -87,6 +83,9 @@ def ingest_data_to_neo4j(parsed_data, session):
         f"MERGE (f:{file_type} {{path: $filename}}) SET f.repo_id = $repo_id, f.name = $file_name, f.extension = $extension",
         filename=filename, repo_id=repo_id, file_name=file_name, extension=file_extension
     )
+
+    # Track import files for later processing
+    import_entities = []
 
     # Comprehensive mapping of entity types based on user requirements
     label_mapping = {
@@ -144,6 +143,11 @@ def ingest_data_to_neo4j(parsed_data, session):
         entity_type = entity.get('entity_type', 'Entity') 
         description = entity.get('description', '')
         
+        # Handle imports differently
+        if entity_type.lower() == 'import':
+            import_entities.append(entity)
+            continue
+            
         # Ensure entity_type is a string before using lower()
         entity_type_str = str(entity_type).lower() if entity_type else 'entity'
         node_label = label_mapping.get(entity_type_str, entity_type_str.capitalize())
@@ -156,18 +160,32 @@ def ingest_data_to_neo4j(parsed_data, session):
         embedding = generate_embeddings(description)
         
         # Extract properties from the enhanced parser output
-        # The new parser puts additional properties in a nested 'properties' field
         properties = entity.get('properties', {})
         property_cypher = ""
         property_params = {
             'file_path': entity.get('file_path', filename),
             'name': entity_name,
             'description': description,
-            'embedding': embedding
+            'embedding': embedding,
+            'repo_id': repo_id
         }
+        
+        # Add original_name if available
+        if properties.get('original_name'):
+            property_params['original_name'] = properties.get('original_name')
+            property_cypher += ", e.original_name = $original_name"
+        
+        # Add source_file if available 
+        if properties.get('source_file'):
+            property_params['source_file'] = properties.get('source_file')
+            property_cypher += ", e.source_file = $source_file"
         
         # Add enhanced properties to Neo4j
         for prop_key, prop_value in properties.items():
+            # Skip already handled properties
+            if prop_key in ['original_name', 'source_file']:
+                continue
+                
             # Skip null values and ensure property names are valid
             prop_key_str = str(prop_key)
             if prop_value is not None and re.match(r'^[A-Za-z][A-Za-z0-9_]*$', prop_key_str):
@@ -180,12 +198,87 @@ def ingest_data_to_neo4j(parsed_data, session):
         cypher = f"""
         MATCH (f:{file_type} {{path: $file_path}})
         MERGE (e:{node_label} {{name: $name, file_path: $file_path}})
-        ON CREATE SET e.description = $description, e.embedding = $embedding{property_cypher}
-        ON MATCH SET e.description = $description, e.embedding = $embedding{property_cypher}
+        ON CREATE SET e.description = $description, e.embedding = $embedding, e.repo_id = $repo_id{property_cypher}
+        ON MATCH SET e.description = $description, e.embedding = $embedding, e.repo_id = $repo_id{property_cypher}
         MERGE (f)-[:CONTAINS]->(e)
         """
         
         session.run(cypher, property_params)
+
+    # Process imports after all entities are created
+    for import_entity in import_entities:
+        import_name = import_entity.get('name')
+        properties = import_entity.get('properties', {})
+        is_standard_library = properties.get('is_standard_library', False)
+        source_file = properties.get('source_file', os.path.basename(filename))
+        
+        # Check if the imported file exists in our database
+        result = session.run(
+            """
+            MATCH (f) 
+            WHERE f.name = $import_name OR f.path ENDS WITH $import_name
+            RETURN f.path as path, f.name as name, count(f) as count
+            """,
+            {"import_name": import_name}
+        ).single()
+        
+        if result and result["count"] > 0:
+            # Found existing file - create relationship to it
+            target_file_path = result["path"]
+            target_file_name = result["name"]
+            
+            print(f"Creating import relationship: {source_file} imports {target_file_name}")
+            session.run(
+                """
+                MATCH (source:{file_type} {name: $source_file, repo_id: $repo_id})
+                MATCH (target) 
+                WHERE target.path = $target_path
+                MERGE (source)-[r:IMPORTS]->(target)
+                SET r.context = $context
+                """.format(file_type=file_type),
+                {
+                    "source_file": source_file,
+                    "target_path": target_file_path,
+                    "context": f"File {source_file} imports {target_file_name}",
+                    "repo_id": repo_id
+                }
+            )
+        else:
+            # Create placeholder node for the imported file
+            import_file_type = "ExternalModule"
+            if is_standard_library:
+                import_file_type = "StandardLibrary"
+                
+            print(f"Creating placeholder for import: {import_name} (type: {import_file_type})")
+            
+            # Create the placeholder node
+            session.run(
+                f"""
+                MERGE (imp:{import_file_type} {{name: $import_name}})
+                ON CREATE SET imp.description = $description, imp.is_placeholder = true
+                """,
+                {
+                    "import_name": import_name,
+                    "description": f"External module {import_name} imported by {source_file} but not available in the repository"
+                }
+            )
+            
+            # Create relationship to the placeholder
+            session.run(
+                """
+                MATCH (source:{file_type} {name: $source_file, repo_id: $repo_id})
+                MATCH (target) 
+                WHERE target.name = $import_name AND target.is_placeholder = true
+                MERGE (source)-[r:IMPORTS]->(target)
+                SET r.context = $context
+                """.format(file_type=file_type),
+                {
+                    "source_file": source_file,
+                    "import_name": import_name,
+                    "context": f"File {source_file} imports external module {import_name}",
+                    "repo_id": repo_id
+                }
+            )
 
     # Comprehensive mapping of relationship types based on user requirements
     rel_mapping = {
@@ -239,12 +332,15 @@ def ingest_data_to_neo4j(parsed_data, session):
         'overrides': 'OVERRIDES'
     }
 
-    # Ingest all relationships with improved type handling
+    # Ingest all relationships with improved type handling and support for unique names
     for rel in relationships:
         source_name = rel.get('source')
         target_name = rel.get('target')
-        # Use the standardized relationship_type field from the improved parser
         rel_type = rel.get('relationship_type', 'RELATED_TO')
+        
+        # Skip import relationships as they're handled above
+        if rel_type.lower() == 'imports':
+            continue
         
         # Ensure rel_type is a string before using lower()
         rel_type_str = str(rel_type).lower() if rel_type else 'related_to'
@@ -256,7 +352,8 @@ def ingest_data_to_neo4j(parsed_data, session):
         if not all([source_name, target_name, sanitized_rel_type]):
             continue
 
-        # More sophisticated relationship creation with better matching
+        # Improved relationship creation with better matching
+        # This works with the unique entity names
         cypher = f"""
         MATCH (source {{name: $source_name, file_path: $filename}})
         MATCH (target {{name: $target_name, file_path: $filename}})
@@ -270,32 +367,6 @@ def ingest_data_to_neo4j(parsed_data, session):
             'filename': filename,
             'context': rel.get('context', '')
         })
-        
-        # If we couldn't find the exact match, try a more flexible approach for cross-file relationships
-        # This is useful for dependencies between files
-        result = session.run(
-            f"""
-            MATCH (source {{name: $source_name}}), (target {{name: $target_name}})
-            WHERE source.file_path <> target.file_path
-            RETURN count(*) as count
-            """, 
-            {'source_name': source_name, 'target_name': target_name}
-        ).single()
-        
-        if result and result["count"] > 0:
-            session.run(
-                f"""
-                MATCH (source {{name: $source_name}}), (target {{name: $target_name}})
-                WHERE source.file_path <> target.file_path
-                MERGE (source)-[r:{sanitized_rel_type}]->(target)
-                SET r.context = $context, r.cross_file = true
-                """,
-                {
-                    'source_name': source_name,
-                    'target_name': target_name,
-                    'context': rel.get('context', '') + " (cross-file relationship)"
-                }
-            )
 
     print(f"Ingested data for {filename} into Neo4j with enhanced entity and relationship handling.")
 
@@ -317,8 +388,20 @@ def graph_ingestor_entrypoint(event, context):
     try:
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(file_name)
+        
+        # Get metadata from the original file if available
+        metadata = blob.metadata or {}
+        repo_id_from_metadata = metadata.get('repo_id')
+        
         parsed_data_content = blob.download_as_text()
         parsed_data = json.loads(parsed_data_content)
+        
+        # Override repo_id with metadata if available
+        if repo_id_from_metadata:
+            parsed_data['repo_id'] = repo_id_from_metadata
+            print(f"Using repo_id from metadata: {repo_id_from_metadata}")
+        else:
+            print(f"No repo_id in metadata, using from content: {parsed_data.get('repo_id', 'unknown')}")
 
         driver = get_neo4j_driver()
         with driver.session() as session:

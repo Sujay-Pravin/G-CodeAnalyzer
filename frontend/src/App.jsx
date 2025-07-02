@@ -179,6 +179,14 @@ function App() {
     setUiState('loading');
     setApiState(API_STATUS.PROCESSING);
     setStatusMessage(`Processing ${selectedFiles.size} selected files...`);
+    
+    // Initialize progress with known values
+    setProcessingProgress({
+      total: selectedFiles.size,
+      processed: 0,
+      percentage: 0,
+      currentFile: ''
+    });
 
     try {
       const processResponse = await axios.post(`${BACKEND_BASE_URL}/process-files`, {
@@ -216,25 +224,26 @@ function App() {
         const statusResponse = await axios.get(`${BACKEND_BASE_URL}/processing-status?repo_id=${repoId}`);
         
         if (statusResponse.data.success) {
-          const status = statusResponse.data.status;
+          // Extract the relevant data from the response
+          const { status, message, is_complete, files_processed, total_files, partial_success } = statusResponse.data;
           
           // Update progress state
-          const percentage = status.total_files > 0 
-            ? Math.round((status.processed / status.total_files) * 100) 
+          const percentage = total_files > 0 
+            ? Math.round((files_processed / total_files) * 100) 
             : 0;
             
           setProcessingProgress({
-            total: status.total_files,
-            processed: status.processed,
+            total: total_files || 0,
+            processed: files_processed || 0,
             percentage: percentage,
-            currentFile: status.current_file || ''
+            currentFile: statusResponse.data.current_file || ''
           });
           
           // Update UI with current status
-          setStatusMessage(`${status.message} (${status.processed}/${status.total_files})`);
+          setStatusMessage(`${message} (${files_processed || 0}/${total_files || 0})`);
           
-          // Check if processing is complete or had an error
-          if (status.status === 'complete') {
+          // Check if processing is complete, partial success, or had an error
+          if (is_complete === true) {
             // Set progress to 100% when complete
             setProcessingProgress(prev => ({
               ...prev, 
@@ -243,18 +252,32 @@ function App() {
             }));
             
             setApiState(API_STATUS.READY);
-            setStatusMessage(`Processing complete! ${status.total_files} files analyzed.`);
+            
+            // Customize message based on complete vs partial
+            if (partial_success) {
+              setStatusMessage(`Partial processing complete. ${files_processed}/${total_files} files analyzed.`);
+              
+              // If there are failed files, add them to the message
+              if (statusResponse.data.failed_files && statusResponse.data.failed_files.length > 0) {
+                console.log("Failed files:", statusResponse.data.failed_files);
+              }
+            } else {
+              setStatusMessage(`Processing complete! ${total_files} files analyzed.`);
+            }
+            
             setChatHistory([
               { 
                 sender: 'ai', 
-                text: `I've analyzed the selected files from your codebase. What would you like to know about the code structure, functions, relationships between components, or any specific implementation details?` 
+                text: partial_success 
+                  ? `I've analyzed ${files_processed} out of ${total_files} selected files from your codebase. Some files couldn't be processed, but we can still work with what we have. What would you like to know about the code structure, functions, or relationships?`
+                  : `I've analyzed all ${total_files} selected files from your codebase. What would you like to know about the code structure, functions, relationships between components, or any specific implementation details?`
               }
             ]);
             setUiState('chat');
             continuePolling = false;
-          } else if (status.status === 'error') {
+          } else if (status === 'error') {
             setApiState(API_STATUS.ERROR);
-            setStatusMessage(`Error: ${status.message}`);
+            setStatusMessage(`Error: ${message}`);
             continuePolling = false;
           }
         }
@@ -356,11 +379,12 @@ function App() {
           <div className="progress-bar">
             <div 
               className="progress-fill" 
-              style={{ width: `${processingProgress.percentage}%` }}
+              style={{ width: `${processingProgress.percentage || 0}%` }}
             ></div>
           </div>
           <div className="progress-stats">
-            {processingProgress.processed} / {processingProgress.total} files
+            {typeof processingProgress.processed === 'number' ? processingProgress.processed : '?'} / 
+            {typeof processingProgress.total === 'number' ? processingProgress.total : '?'} files
           </div>
           {processingProgress.currentFile && (
             <div className="current-file">
