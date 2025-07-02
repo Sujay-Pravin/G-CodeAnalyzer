@@ -231,7 +231,7 @@ def retrieve_graph_context(query_embedding, user_query, session):
             WHERE (ANY(keyword IN $keywords WHERE toLower(n.name) CONTAINS keyword))
             RETURN n.name as name, labels(n)[0] as type, n.file_path as filePath, 
                    n.description as description
-            LIMIT 3
+            LIMIT 5
             """
             app.logger.info("Executing keyword name search...")
             name_results = session.run(name_query, keywords=keywords).data()
@@ -246,7 +246,7 @@ def retrieve_graph_context(query_embedding, user_query, session):
             WHERE (ANY(keyword IN $keywords WHERE toLower(n.description) CONTAINS keyword))
             RETURN n.name as name, labels(n)[0] as type, n.file_path as filePath, 
                    n.description as description
-            LIMIT 3
+            LIMIT 5
             """
             app.logger.info("Executing keyword description search...")
             desc_results = session.run(desc_query, keywords=keywords).data()
@@ -271,7 +271,7 @@ def retrieve_graph_context(query_embedding, user_query, session):
             MATCH (n)<-[r]-(m {name: $name, file_path: $filePath})
             RETURN m.name as source, type(r) as relationship, n.name as target, 
                    labels(n)[0] as targetType, r.context as context
-            LIMIT 5
+            LIMIT 8
             """
             app.logger.info(f"Exploring relationships for entity: {entity_name}")
             rel_results = session.run(rel_query, name=entity_name, filePath=entity_file).data()
@@ -289,29 +289,49 @@ def retrieve_graph_context(query_embedding, user_query, session):
         if entity_results:
             file_paths = list(set([res['filePath'] for res in entity_results if 'filePath' in res]))
             if file_paths:
+                # Use a more comprehensive query to get file information
                 file_query = """
-                MATCH (f:File)
-                WHERE f.path IN $filePaths
-                RETURN f.path as path, f.repo_id as repoId
+                MATCH (f)
+                WHERE (f:File OR f:SourceFile OR f:PythonModule OR f:JavaScriptModule OR f:CobolProgram 
+                       OR f:SasProgram OR f:JclJob OR f:FlinkJob OR f:DataFile OR f:CppFile 
+                       OR f:FortranProgram OR f:PliProgram OR f:AssemblyFile OR f:RpgProgram)
+                AND f.path IN $filePaths
+                RETURN f.path as path, f.repo_id as repoId, labels(f) as fileLabels
                 """
                 app.logger.info(f"Getting file context for {len(file_paths)} files")
                 file_results = session.run(file_query, filePaths=file_paths).data()
                 
                 for res in file_results:
-                    context.append(f"The file '{res['path']}' is part of repository '{res.get('repoId', 'unknown')}'.")
+                    file_labels = res.get('fileLabels', [])
+                    file_type = "file"
+                    # Extract the most specific file type label (not 'File')
+                    for label in file_labels:
+                        if label != 'File':
+                            file_type = label.replace('File', '').replace('Program', '').replace('Module', '').replace('Job', '')
+                            break
                     
-                    # Get other entities in the same file
+                    context.append(f"The {file_type.lower()} file '{res['path']}' is part of repository '{res.get('repoId', 'unknown')}'.")
+                    
+                    # Get other entities in the same file with improved query
                     file_entities_query = """
-                    MATCH (f:File {path: $path})-[:CONTAINS]->(e)
-                    WHERE NOT e:File
+                    MATCH (f)-[:CONTAINS]->(e)
+                    WHERE f.path = $path
                     RETURN e.name as name, labels(e)[0] as type
-                    LIMIT 5
+                    LIMIT 8
                     """
                     file_entities = session.run(file_entities_query, path=res['path']).data()
                     
                     if file_entities:
-                        entities_str = ", ".join([f"'{e['name']}'" for e in file_entities])
-                        context.append(f"The file '{res['path']}' also contains: {entities_str}.")
+                        entities_info = []
+                        for e in file_entities:
+                            e_type = e.get('type', 'Entity').lower()
+                            e_name = e.get('name', '')
+                            if e_name:
+                                entities_info.append(f"{e_type} '{e_name}'")
+                                
+                        if entities_info:
+                            entities_str = ", ".join(entities_info)
+                            context.append(f"The file '{res['path']}' contains: {entities_str}.")
 
     except Neo4jError as e:
         app.logger.error(f"Neo4j Cypher error during context retrieval: {e.message}", exc_info=True)

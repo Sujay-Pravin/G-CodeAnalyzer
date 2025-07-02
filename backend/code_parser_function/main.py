@@ -52,7 +52,17 @@ class CodeParser:
 
         # Language detection patterns - expanded with more languages
         self.language_patterns = {
-            'cobol': [r'\.cob$', r'\.cbl$', r'\.cpy$', r'IDENTIFICATION\s+DIVISION', r'PROGRAM-ID'],
+            # Legacy languages
+            'cobol': [r'\.cob$', r'\.cbl$', r'\.cpy$', r'IDENTIFICATION\s+DIVISION', r'PROGRAM-ID', r'PROCEDURE\s+DIVISION', r'DATA\s+DIVISION'],
+            'jcl': [r'\.jcl$', r'//\w+\s+JOB', r'//\w+\s+EXEC', r'//\w+\s+DD', r'//SYSOUT'],
+            'sas': [r'\.sas$', r'proc\s+\w+', r'data\s+\w+', r'run;', r'libname\s+', r'%macro', r'%mend'],
+            'rpg': [r'\.rpg$', r'\.rpgle$', r'dcl-proc', r'dcl-f', r'dcl-ds', r'dcl-c', r'ctl-opt'],
+            'flink': [r'\.flink$', r'\.flk$', r'StreamExecutionEnvironment', r'DataStream', r'createLocalEnvironment'],
+            'fortran': [r'\.for$', r'\.f$', r'\.f77$', r'\.f90$', r'program\s+\w+', r'subroutine\s+\w+', r'function\s+\w+', r'end\s+program'],
+            'pli': [r'\.pli$', r'\.pl1$', r'PROCEDURE\s+OPTIONS', r'DECLARE', r'END;'],
+            'assembly': [r'\.asm$', r'\.s$', r'\.S$', r'section\s+\.text', r'global\s+_start', r'\.data', r'\.bss'],
+            
+            # Modern languages
             'c': [r'\.c$', r'\.h$', r'#include\s*<', r'int\s+main\s*\('],
             'cpp': [r'\.cpp$', r'\.cc$', r'\.cxx$', r'\.hpp$', r'#include\s*<iostream>', r'using\s+namespace'],
             'python': [r'\.py$', r'import\s+', r'def\s+', r'class\s+'],
@@ -62,8 +72,7 @@ class CodeParser:
             'csharp': [r'\.cs$', r'namespace\s+', r'using\s+System', r'public\s+class'],
             'go': [r'\.go$', r'package\s+', r'import\s+\(', r'func\s+'],
             'ruby': [r'\.rb$', r'require\s+', r'def\s+', r'class\s+'],
-            'php': [r'\.php$', r'\<\?php', r'function\s+', r'class\s+'],
-            'jcl': [r'\.jcl$', r'//\w+\s+JOB', r'//\w+\s+EXEC']
+            'php': [r'\.php$', r'\<\?php', r'function\s+', r'class\s+']
         }
 
     def detect_language(self, file_path: str, content: str) -> str:

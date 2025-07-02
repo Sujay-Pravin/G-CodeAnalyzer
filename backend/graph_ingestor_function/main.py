@@ -66,21 +66,45 @@ def ingest_data_to_neo4j(parsed_data, session):
     # Determine file type based on extension
     file_extension = os.path.splitext(filename)[1].lower()
     
-    # Classify file type - simplified to remove header file confusion
+    # Classify file type - expanded to support legacy code files
     file_type = "SourceFile"
+    
+    # Modern languages
     if file_extension in ['.py']:
         file_type = "PythonModule"
     elif file_extension in ['.js', '.jsx', '.ts', '.tsx']:
         file_type = "JavaScriptModule"
     elif file_extension in ['.java']:
-        file_type = "JavaClass"
-    elif file_extension in ['.html', '.xml', '.json', '.yaml', '.yml']:
+        file_type = "JavaClass" 
+    elif file_extension in ['.c', '.cpp', '.cc', '.cxx']:
+        file_type = "CppFile"
+    
+    # Legacy languages
+    elif file_extension in ['.cob', '.cbl', '.cpy']:
+        file_type = "CobolProgram"
+    elif file_extension in ['.sas']:
+        file_type = "SasProgram"
+    elif file_extension in ['.jcl']:
+        file_type = "JclJob"
+    elif file_extension in ['.flink', '.flk']:
+        file_type = "FlinkJob"
+    elif file_extension in ['.rpg', '.rpgle']:
+        file_type = "RpgProgram"
+    elif file_extension in ['.pli', '.pl1']:
+        file_type = "PliProgram"
+    elif file_extension in ['.asm', '.s', '.S']:
+        file_type = "AssemblyFile"
+    elif file_extension in ['.for', '.f', '.f77', '.f90']:
+        file_type = "FortranProgram"
+    
+    # Data files
+    elif file_extension in ['.html', '.xml', '.json', '.yaml', '.yml', '.csv', '.dat']:
         file_type = "DataFile"
     
     # Create the File node with appropriate type
     file_name = os.path.basename(filename)
     session.run(
-        f"MERGE (f:{file_type} {{path: $filename}}) SET f.repo_id = $repo_id, f.name = $file_name, f.extension = $extension",
+        f"MERGE (f:{file_type}:File {{path: $filename}}) SET f.repo_id = $repo_id, f.name = $file_name, f.extension = $extension",
         filename=filename, repo_id=repo_id, file_name=file_name, extension=file_extension
     )
 

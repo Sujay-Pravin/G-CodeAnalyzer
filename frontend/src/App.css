@@ -1311,3 +1311,97 @@ body.light-theme {
   font-weight: 500;
   margin-right: 0.5rem;
 }
+
+/* File selection view - folder tree structure */
+.file-tree {
+  margin-top: 1rem;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 4px;
+  margin-bottom: 0.25rem;
+  transition: background-color 0.2s;
+}
+
+.folder-item:hover {
+  background-color: var(--hover-bg);
+}
+
+.folder-item label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  flex: 1;
+}
+
+.folder-icon {
+  margin-right: 8px;
+  font-size: 1.1rem;
+}
+
+.folder-name {
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.folder-count {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+.file-icon {
+  margin-right: 8px;
+  font-size: 1rem;
+}
+
+/* Improve checkbox styles */
+.file-item input[type="checkbox"],
+.folder-item input[type="checkbox"] {
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-color);
+}
+
+/* Better styles for select all button */
+.select-all-button {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.select-all-button:hover {
+  background-color: var(--hover-bg);
+}
+
+/* Add styles for the Start New button */
+.start-new-button {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-right: 12px;
+}
+
+.start-new-button:hover {
+  background-color: var(--hover-bg);
+}
+
+.start-new-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -89,6 +89,7 @@ function App() {
   const handleConfirmStartNew = async () => {
     setIsClearing(true);
     try {
+      // Make API call to clear database
       await axios.post(CLEAR_DB_URL);
       
       // Reset all state
@@ -101,6 +102,13 @@ function App() {
       setRepoId(null);
       setChatHistory([]);
       setChatQuery('');
+      setProcessingProgress({
+        total: 0,
+        processed: 0,
+        percentage: 0,
+        currentFile: ''
+      });
+      console.log("Application state reset successfully");
     } catch (error) {
       console.error('Error clearing database:', error);
       setChatHistory(prev => [...prev, { 
@@ -331,6 +339,128 @@ function App() {
     ? files.filter(file => file.toLowerCase().includes(fileSearchTerm.toLowerCase()))
     : files;
   
+  // Helper function to get folder structure from file paths
+  const getFolderStructure = (files) => {
+    const structure = {};
+    
+    files.forEach(filePath => {
+      const parts = filePath.split('/');
+      let currentLevel = structure;
+      
+      // Process each part of the path except the filename (last part)
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (!currentLevel[part]) {
+          currentLevel[part] = {};
+        }
+        currentLevel = currentLevel[part];
+      }
+      
+      // Add the file at the current level
+      const fileName = parts[parts.length - 1];
+      currentLevel[fileName] = filePath;
+    });
+    
+    return structure;
+  };
+  
+  // Helper function to render folder structure recursively
+  const renderFolderTree = (structure, path = "", indent = 0) => {
+    return Object.entries(structure).map(([key, value]) => {
+      const currentPath = path ? `${path}/${key}` : key;
+      const isFile = typeof value === 'string';
+      
+      if (isFile) {
+        // It's a file
+        return (
+          <div 
+            key={value} 
+            className="file-item" 
+            style={{ marginLeft: `${indent * 16}px` }}
+          >
+            <input
+              type="checkbox"
+              id={`file-${value}`}
+              checked={selectedFiles.has(value)}
+              onChange={() => handleFileSelect(value)}
+            />
+            <label htmlFor={`file-${value}`}>
+              <span className="file-icon">📄</span>
+              <span className="file-name">{key}</span>
+            </label>
+          </div>
+        );
+      } else {
+        // It's a folder
+        // First, count files in this folder and its subfolders
+        const countFilesInFolder = (obj) => {
+          return Object.entries(obj).reduce((count, [_, val]) => {
+            if (typeof val === 'string') {
+              return count + 1;
+            } else {
+              return count + countFilesInFolder(val);
+            }
+          }, 0);
+        };
+        
+        const filesInFolder = countFilesInFolder(value);
+        
+        // Function to get all file paths in this folder
+        const getFilePaths = (obj, result = []) => {
+          Object.entries(obj).forEach(([_, val]) => {
+            if (typeof val === 'string') {
+              result.push(val);
+            } else {
+              getFilePaths(val, result);
+            }
+          });
+          return result;
+        };
+        
+        // Check if all files in this folder are selected
+        const folderFiles = getFilePaths(value);
+        const allFolderFilesSelected = folderFiles.every(file => selectedFiles.has(file));
+        
+        // Handle selecting/deselecting all files in a folder
+        const handleFolderSelect = () => {
+          const newSelectedFiles = new Set(selectedFiles);
+          
+          if (allFolderFilesSelected) {
+            // Deselect all files in this folder
+            folderFiles.forEach(file => newSelectedFiles.delete(file));
+          } else {
+            // Select all files in this folder
+            folderFiles.forEach(file => newSelectedFiles.add(file));
+          }
+          
+          setSelectedFiles(newSelectedFiles);
+        };
+        
+        return (
+          <div key={currentPath}>
+            <div 
+              className="folder-item" 
+              style={{ marginLeft: `${indent * 16}px` }}
+            >
+              <input
+                type="checkbox"
+                id={`folder-${currentPath}`}
+                checked={allFolderFilesSelected && folderFiles.length > 0}
+                onChange={handleFolderSelect}
+              />
+              <label htmlFor={`folder-${currentPath}`}>
+                <span className="folder-icon">📁</span>
+                <span className="folder-name">{key}</span>
+                <span className="folder-count">({filesInFolder} files)</span>
+              </label>
+            </div>
+            {renderFolderTree(value, currentPath, indent + 1)}
+          </div>
+        );
+      }
+    });
+  };
+
   const renderWelcomeView = () => (
     <div className="welcome-container">
       <div className="theme-toggle-container">
@@ -396,92 +526,103 @@ function App() {
     </div>
   );
 
-  const renderFileSelectionView = () => (
-    <div className="file-selection-container">
-      <div className="file-selection-header">
-        <h2>Select Files to Analyze</h2>
-        <ThemeToggle />
-      </div>
-      <p>{files.length} files found in the repository. Select the files you want to analyze.</p>
-      
-      <div className="file-search">
-        <input
-          type="text"
-          placeholder="Search files..."
-          value={fileSearchTerm}
-          onChange={(e) => setFileSearchTerm(e.target.value)}
-        />
-        {fileSearchTerm && (
-          <button 
-            className="clear-search" 
-            onClick={() => setFileSearchTerm('')}
-            aria-label="Clear search"
-          >
-            ✕
-          </button>
+  const renderFileSelectionView = () => {
+    // Create folder structure from files
+    const folderStructure = getFolderStructure(filteredFiles);
+    
+    return (
+      <div className="file-selection-container">
+        <div className="file-selection-header">
+          <h2>Select Files to Analyze</h2>
+          <ThemeToggle />
+        </div>
+        <p>{files.length} files found in the repository. Select the files you want to analyze.</p>
+        
+        <div className="file-search">
+          <input
+            type="text"
+            placeholder="Search files..."
+            value={fileSearchTerm}
+            onChange={(e) => setFileSearchTerm(e.target.value)}
+          />
+          {fileSearchTerm && (
+            <button 
+              className="clear-search" 
+              onClick={() => setFileSearchTerm('')}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        
+        {files.length === 0 && (
+          <div className="no-files-message">
+            <h3>No files found in repository</h3>
+            <p>This could be due to:</p>
+            <ul>
+              <li>The repository is empty</li>
+              <li>Files may be in nested directories not visible</li>
+              <li>There was an error retrieving files</li>
+            </ul>
+            <button onClick={() => setUiState('welcome')} className="back-button">
+              Go Back
+            </button>
+          </div>
+        )}
+        
+        {files.length > 0 && (
+          <>
+            <div className="file-list-actions">
+              <button onClick={handleSelectAll} className="select-all-button">
+                {selectedFiles.size === filteredFiles.length && filteredFiles.length > 0 ? 'Deselect All' : 'Select All'}
+              </button>
+              <span className="file-count">
+                {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''} selected
+              </span>
+            </div>
+            
+            <div className="file-list file-tree">
+              {filteredFiles.length > 0 ? (
+                Object.keys(folderStructure).length > 0 ? (
+                  renderFolderTree(folderStructure)
+                ) : (
+                  // Fallback to old file list if structure is empty
+                  filteredFiles.map((file, index) => (
+                    <div key={index} className="file-item">
+                      <input
+                        type="checkbox"
+                        id={`file-${index}`}
+                        checked={selectedFiles.has(file)}
+                        onChange={() => handleFileSelect(file)}
+                      />
+                      <label htmlFor={`file-${index}`}>
+                        <span className="file-icon">📄</span>
+                        <span className="file-name">{file}</span>
+                      </label>
+                    </div>
+                  ))
+                )
+              ) : (
+                <div className="no-results">
+                  {fileSearchTerm ? 'No matching files found' : 'No files available'}
+                </div>
+              )}
+            </div>
+            <div className="file-selection-footer">
+              <button 
+                onClick={handleProcessSelectedFiles} 
+                disabled={selectedFiles.size === 0}
+                className="process-button"
+              >
+                Analyze {selectedFiles.size} Selected File{selectedFiles.size !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </>
         )}
       </div>
-      
-      {files.length === 0 && (
-        <div className="no-files-message">
-          <h3>No files found in repository</h3>
-          <p>This could be due to:</p>
-          <ul>
-            <li>The repository is empty</li>
-            <li>Files may be in nested directories not visible</li>
-            <li>There was an error retrieving files</li>
-          </ul>
-          <button onClick={() => setUiState('welcome')} className="back-button">
-            Go Back
-          </button>
-        </div>
-      )}
-      
-      {files.length > 0 && (
-        <>
-          <div className="file-list-actions">
-            <button onClick={handleSelectAll} className="select-all-button">
-              {selectedFiles.size === filteredFiles.length && filteredFiles.length > 0 ? 'Deselect All' : 'Select All'}
-            </button>
-            <span className="file-count">
-              {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''} selected
-            </span>
-          </div>
-          
-          <div className="file-list">
-            {filteredFiles.length > 0 ? (
-              filteredFiles.map((file, index) => (
-                <div key={index} className="file-item">
-                  <input
-                    type="checkbox"
-                    id={`file-${index}`}
-                    checked={selectedFiles.has(file)}
-                    onChange={() => handleFileSelect(file)}
-                  />
-                  <label htmlFor={`file-${index}`}>
-                    <span className="file-name">{file}</span>
-                  </label>
-                </div>
-              ))
-            ) : (
-              <div className="no-results">
-                {fileSearchTerm ? 'No matching files found' : 'No files available'}
-              </div>
-            )}
-          </div>
-          <div className="file-selection-footer">
-            <button 
-              onClick={handleProcessSelectedFiles} 
-              disabled={selectedFiles.size === 0}
-              className="process-button"
-            >
-              Analyze {selectedFiles.size} Selected File{selectedFiles.size !== 1 ? 's' : ''}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
+    );
+  };
 
   const renderChatView = () => {
     // Function to format code blocks
