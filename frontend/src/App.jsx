@@ -4,6 +4,8 @@ import { ThemeContext } from './ThemeContext';
 import ThemeToggle from './components/ThemeToggle';
 import './App.css';
 
+const webname = "Analyo";
+
 const API_STATUS = {
   IDLE: 'idle',
   FETCHING: 'fetching',
@@ -343,229 +345,284 @@ function App() {
   const getFolderStructure = (files) => {
     const structure = {};
     
-    files.forEach(filePath => {
-      const parts = filePath.split('/');
-      let currentLevel = structure;
+    files.forEach(file => {
+      const parts = file.split('/');
+      let current = structure;
       
-      // Process each part of the path except the filename (last part)
-      for (let i = 0; i < parts.length - 1; i++) {
+      for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
-        if (!currentLevel[part]) {
-          currentLevel[part] = {};
+        
+        if (i === parts.length - 1) {
+          // It's a file
+          current[part] = file;
+        } else {
+          // It's a directory
+          if (!current[part]) {
+            current[part] = {};
+          }
+          current = current[part];
         }
-        currentLevel = currentLevel[part];
       }
-      
-      // Add the file at the current level
-      const fileName = parts[parts.length - 1];
-      currentLevel[fileName] = filePath;
     });
     
     return structure;
   };
   
+  // Count files in a folder structure
+  const countFilesInFolder = (obj) => {
+    return Object.entries(obj).reduce((count, [_, val]) => {
+      if (typeof val === 'string') {
+        return count + 1;
+      } else {
+        return count + countFilesInFolder(val);
+      }
+    }, 0);
+  };
+  
+  // Get all file paths in a folder structure
+  const getFilePaths = (obj, result = []) => {
+    Object.entries(obj).forEach(([_, val]) => {
+      if (typeof val === 'string') {
+        result.push(val);
+      } else {
+        getFilePaths(val, result);
+      }
+    });
+    return result;
+  };
+
   // Helper function to render folder structure recursively
   const renderFolderTree = (structure, path = "", indent = 0) => {
     return Object.entries(structure).map(([key, value]) => {
-      const currentPath = path ? `${path}/${key}` : key;
-      const isFile = typeof value === 'string';
-      
-      if (isFile) {
+      if (typeof value === 'string') {
         // It's a file
         return (
-          <div 
-            key={value} 
-            className="file-item" 
-            style={{ marginLeft: `${indent * 16}px` }}
-          >
+          <li key={value} 
+            className={`file-item ${selectedFiles.has(value) ? 'selected' : ''}`}
+            onClick={() => handleFileSelect(value)}>
             <input
               type="checkbox"
+              className="file-checkbox"
               id={`file-${value}`}
               checked={selectedFiles.has(value)}
-              onChange={() => handleFileSelect(value)}
+              onChange={(e) => e.stopPropagation()}
             />
-            <label htmlFor={`file-${value}`}>
-              <span className="file-icon">📄</span>
-              <span className="file-name">{key}</span>
-            </label>
-          </div>
+            <span className="file-name">{key}</span>
+          </li>
         );
       } else {
         // It's a folder
-        // First, count files in this folder and its subfolders
-        const countFilesInFolder = (obj) => {
-          return Object.entries(obj).reduce((count, [_, val]) => {
-            if (typeof val === 'string') {
-              return count + 1;
-            } else {
-              return count + countFilesInFolder(val);
-            }
-          }, 0);
-        };
+        const currentPath = path ? `${path}/${key}` : key;
         
+        // Count files in this folder
         const filesInFolder = countFilesInFolder(value);
         
-        // Function to get all file paths in this folder
-        const getFilePaths = (obj, result = []) => {
-          Object.entries(obj).forEach(([_, val]) => {
-            if (typeof val === 'string') {
-              result.push(val);
-            } else {
-              getFilePaths(val, result);
-            }
-          });
-          return result;
+        // Get all file paths in this folder for select/deselect operations
+        const filePaths = [];
+        getFilePaths(value, filePaths);
+        
+        // Is folder expanded (default to true)
+        const [isExpanded, setIsExpanded] = useState(true);
+        
+        // Toggle folder expansion
+        const toggleFolder = (e) => {
+          e.stopPropagation();
+          setIsExpanded(!isExpanded);
         };
         
-        // Check if all files in this folder are selected
-        const folderFiles = getFilePaths(value);
-        const allFolderFilesSelected = folderFiles.every(file => selectedFiles.has(file));
-        
-        // Handle selecting/deselecting all files in a folder
+        // Handle folder selection (select/deselect all files in folder)
         const handleFolderSelect = () => {
           const newSelectedFiles = new Set(selectedFiles);
           
-          if (allFolderFilesSelected) {
-            // Deselect all files in this folder
-            folderFiles.forEach(file => newSelectedFiles.delete(file));
+          // Check if all files in the folder are already selected
+          const allSelected = filePaths.every(file => selectedFiles.has(file));
+          
+          if (allSelected) {
+            // Deselect all files in the folder
+            filePaths.forEach(file => {
+              newSelectedFiles.delete(file);
+            });
           } else {
-            // Select all files in this folder
-            folderFiles.forEach(file => newSelectedFiles.add(file));
+            // Select all files in the folder
+            filePaths.forEach(file => {
+              newSelectedFiles.add(file);
+            });
           }
           
           setSelectedFiles(newSelectedFiles);
         };
         
         return (
-          <div key={currentPath}>
+          <li key={currentPath} className="folder-item">
             <div 
-              className="folder-item" 
-              style={{ marginLeft: `${indent * 16}px` }}
+              className={`folder-header ${isExpanded ? 'expanded' : ''}`}
+              onClick={handleFolderSelect}
             >
-              <input
-                type="checkbox"
-                id={`folder-${currentPath}`}
-                checked={allFolderFilesSelected && folderFiles.length > 0}
-                onChange={handleFolderSelect}
-              />
-              <label htmlFor={`folder-${currentPath}`}>
-                <span className="folder-icon">📁</span>
-                <span className="folder-name">{key}</span>
-                <span className="folder-count">({filesInFolder} files)</span>
-              </label>
+              <button 
+                className={`folder-toggle ${isExpanded ? 'expanded' : ''}`}
+                onClick={toggleFolder}
+                aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
+                aria-expanded={isExpanded}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M9 18L15 12L9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              
+              <span className="folder-name">
+                {key}
+                <span className="folder-count">({filesInFolder})</span>
+              </span>
             </div>
-            {renderFolderTree(value, currentPath, indent + 1)}
-          </div>
+            
+            {isExpanded && (
+              <ul className="nested-folder">
+                {renderFolderTree(value, currentPath, indent + 1)}
+              </ul>
+            )}
+          </li>
         );
       }
     });
   };
 
-  const renderWelcomeView = () => (
-    <div className="welcome-container">
-      <div className="theme-toggle-container">
+  // New function to render the header
+  const renderHeader = () => (
+    <header className={`app-header ${!isHeaderVisible ? 'header-hidden' : ''}`}>
+      <div className="logo-container">
+        <h1 className="logo-text">{webname}</h1>
+      </div>
+      <div className="header-actions">
+        {uiState === 'chat' && (
+          <button 
+            className="btn btn-secondary" 
+            onClick={handleStartNewClick}
+            disabled={isClearing}
+          >
+            Start New
+          </button>
+        )}
         <ThemeToggle />
       </div>
-      <div className="logo-title">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="48" height="48" rx="16" fill="url(#paint0_linear)" />
-          <path d="M32 16H16C14.9 16 14 16.9 14 18V30C14 31.1 14.9 32 16 32H32C33.1 32 34 31.1 34 30V18C34 16.9 33.1 16 32 16ZM31 21H28V27H26V21H23V19H31V21Z" fill="white"/>
-          <path d="M14 23L24 18L34 23" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M24 18V14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          <defs>
-            <linearGradient id="paint0_linear" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#805AD5" />
-              <stop offset="1" stopColor="#553C9A" />
-            </linearGradient>
-          </defs>
-        </svg>
-        <h1>Codebase Analyzer</h1>
-      </div>
-      <p className="subtitle">Understand your code structure, relationships, and implementation details with AI-powered analysis</p>
-      <form onSubmit={handleSubmitRepo} className="repo-form">
-        <input
-          type="text"
-          value={githubUrl}
-          onChange={(e) => setGithubUrl(e.target.value)}
-          placeholder="Enter GitHub repository URL"
-        />
-        <button type="submit">Analyze</button>
+    </header>
+  );
+
+  const renderWelcomeView = () => (
+    <div className="welcome-container">
+      <h1 className="welcome-title">Welcome to <span className='logo-text' style={{"fontSize" : "inherit"}}>{webname}</span></h1>
+      <p className="welcome-subtitle">
+        Analyze, understand, and explore your codebase with AI assistance.
+        Enter a GitHub repository URL below to get started.
+      </p>
+      <form className="repo-form" onSubmit={handleSubmitRepo}>
+        <div className="repo-input-container">
+          <input
+            type="text"
+            className="repo-input"
+            value={githubUrl}
+            onChange={(e) => setGithubUrl(e.target.value)}
+            placeholder="Enter GitHub repository URL (e.g., https://github.com/username/repo)"
+            aria-label="GitHub repository URL"
+            disabled={apiState !== API_STATUS.IDLE}
+          />
+        </div>
+        <button 
+          type="submit" 
+          className="btn btn-primary w-full"
+          disabled={apiState !== API_STATUS.IDLE || !githubUrl.trim()}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginRight: '0.5rem' }}>
+            <path d="M21 12L13 4V9C7 10 4 15 3 20C5.5 16.5 9 14.9 13 14.9V20L21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Analyze Repository
+        </button>
       </form>
-      {statusMessage && apiState === API_STATUS.ERROR && <p className="error-message">{statusMessage}</p>}
     </div>
   );
 
   const renderLoadingView = () => (
     <div className="loading-container">
-      <div className="theme-toggle-container">
-        <ThemeToggle />
+      <div className="spinner">
+        <div className="spinner-dot"></div>
+        <div className="spinner-dot"></div>
+        <div className="spinner-dot"></div>
+        <div className="spinner-dot"></div>
+        <div className="spinner-dot"></div>
+        <div className="spinner-dot"></div>
+        <div className="spinner-dot"></div>
+        <div className="spinner-dot"></div>
       </div>
-      <div className="spinner"></div>
-      <h2>{apiState === API_STATUS.FETCHING ? 'Fetching Repository...' : 'Processing Files...'}</h2>
-      <p>{statusMessage}</p>
+      <h2>
+        {apiState === API_STATUS.FETCHING 
+          ? 'Fetching repository files...' 
+          : 'Processing selected files...'}
+      </h2>
       
-      {apiState === API_STATUS.PROCESSING && (
+      {apiState === API_STATUS.PROCESSING && processingProgress.total > 0 && (
         <div className="progress-container">
           <div className="progress-bar">
             <div 
               className="progress-fill" 
-              style={{ width: `${processingProgress.percentage || 0}%` }}
+              style={{ width: `${processingProgress.percentage}%` }}
             ></div>
           </div>
-          <div className="progress-stats">
-            {typeof processingProgress.processed === 'number' ? processingProgress.processed : '?'} / 
-            {typeof processingProgress.total === 'number' ? processingProgress.total : '?'} files
-          </div>
-          {processingProgress.currentFile && (
-            <div className="current-file">
-              <span>Currently processing:</span> {processingProgress.currentFile}
-            </div>
-          )}
+          <p className="progress-text">
+            Processing file {processingProgress.processed} of {processingProgress.total}
+            {processingProgress.currentFile && `: ${processingProgress.currentFile}`}
+          </p>
         </div>
       )}
+      
+      <p>{statusMessage}</p>
     </div>
   );
 
   const renderFileSelectionView = () => {
+    // Filter files based on search term
+    const filteredFiles = fileSearchTerm
+      ? files.filter(file => file.toLowerCase().includes(fileSearchTerm.toLowerCase()))
+      : files;
+    
     // Create folder structure from files
     const folderStructure = getFolderStructure(filteredFiles);
     
     return (
       <div className="file-selection-container">
-        <div className="file-selection-header">
+        <div className="selection-header">
           <h2>Select Files to Analyze</h2>
-          <ThemeToggle />
-        </div>
-        <p>{files.length} files found in the repository. Select the files you want to analyze.</p>
-        
-        <div className="file-search">
-          <input
-            type="text"
-            placeholder="Search files..."
-            value={fileSearchTerm}
-            onChange={(e) => setFileSearchTerm(e.target.value)}
-          />
-          {fileSearchTerm && (
-            <button 
-              className="clear-search" 
-              onClick={() => setFileSearchTerm('')}
-              aria-label="Clear search"
-            >
-              ✕
-            </button>
-          )}
+          <div className="file-search">
+            <input
+              type="text"
+              className="repo-input"
+              placeholder="Search files..."
+              value={fileSearchTerm}
+              onChange={(e) => setFileSearchTerm(e.target.value)}
+            />
+            {fileSearchTerm && (
+              <button 
+                className="btn" 
+                onClick={() => setFileSearchTerm('')}
+                aria-label="Clear search"
+                style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', padding: '4px' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
         
         {files.length === 0 && (
-          <div className="no-files-message">
+          <div className="card text-center">
             <h3>No files found in repository</h3>
             <p>This could be due to:</p>
-            <ul>
+            <ul style={{ textAlign: 'left', marginBottom: 'var(--space-4)' }}>
               <li>The repository is empty</li>
               <li>Files may be in nested directories not visible</li>
               <li>There was an error retrieving files</li>
             </ul>
-            <button onClick={() => setUiState('welcome')} className="back-button">
+            <button onClick={() => setUiState('welcome')} className="btn btn-primary">
               Go Back
             </button>
           </div>
@@ -573,48 +630,56 @@ function App() {
         
         {files.length > 0 && (
           <>
-            <div className="file-list-actions">
-              <button onClick={handleSelectAll} className="select-all-button">
-                {selectedFiles.size === filteredFiles.length && filteredFiles.length > 0 ? 'Deselect All' : 'Select All'}
+            <div className="file-controls">
+              <button onClick={handleSelectAll} className="btn btn-secondary">
+                {selectedFiles.size === filteredFiles.length && filteredFiles.length > 0 
+                  ? 'Deselect All' 
+                  : 'Select All'}
               </button>
               <span className="file-count">
                 {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''} selected
               </span>
             </div>
             
-            <div className="file-list file-tree">
+            <div className="file-browser">
               {filteredFiles.length > 0 ? (
-                Object.keys(folderStructure).length > 0 ? (
-                  renderFolderTree(folderStructure)
-                ) : (
-                  // Fallback to old file list if structure is empty
-                  filteredFiles.map((file, index) => (
-                    <div key={index} className="file-item">
-                      <input
-                        type="checkbox"
-                        id={`file-${index}`}
-                        checked={selectedFiles.has(file)}
-                        onChange={() => handleFileSelect(file)}
-                      />
-                      <label htmlFor={`file-${index}`}>
-                        <span className="file-icon">📄</span>
+                <ul className="file-list">
+                  {Object.keys(folderStructure).length > 0 ? (
+                    renderFolderTree(folderStructure)
+                  ) : (
+                    // Fallback to old file list if structure is empty
+                    filteredFiles.map((file, index) => (
+                      <li key={index} 
+                        className={`file-item ${selectedFiles.has(file) ? 'selected' : ''}`}
+                        onClick={() => handleFileSelect(file)}>
+                        <input
+                          type="checkbox"
+                          className="file-checkbox"
+                          id={`file-${index}`}
+                          checked={selectedFiles.has(file)}
+                          onChange={(e) => e.stopPropagation()}
+                        />
                         <span className="file-name">{file}</span>
-                      </label>
-                    </div>
-                  ))
-                )
+                      </li>
+                    ))
+                  )}
+                </ul>
               ) : (
-                <div className="no-results">
+                <div className="card text-center">
                   {fileSearchTerm ? 'No matching files found' : 'No files available'}
                 </div>
               )}
             </div>
-            <div className="file-selection-footer">
+            
+            <div className="mt-auto">
               <button 
                 onClick={handleProcessSelectedFiles} 
                 disabled={selectedFiles.size === 0}
-                className="process-button"
+                className="btn btn-primary w-full"
               >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginRight: '0.5rem' }}>
+                  <path d="M9 16.2L4.8 12L3.4 13.4L9 19L21 7L19.6 5.6L9 16.2Z" fill="currentColor"/>
+                </svg>
                 Analyze {selectedFiles.size} Selected File{selectedFiles.size !== 1 ? 's' : ''}
               </button>
             </div>
@@ -658,103 +723,65 @@ function App() {
 
     return (
       <div className="chat-container">
-        <div className={`chat-header ${isHeaderVisible ? '' : 'hidden'}`}>
-          <h2>Code Analysis Assistant</h2>
-          <div className="header-actions">
-            <button 
-              className="start-new-button" 
-              onClick={handleStartNewClick}
-              disabled={isClearing}
-            >
-              Start New
-            </button>
-            <ThemeToggle />
-          </div>
-        </div>
-        
-        {/* Confirmation Dialog */}
-        {showConfirmDialog && (
-          <div className="confirm-dialog-backdrop">
-            <div className="confirm-dialog">
-              <h3>Start New Analysis?</h3>
-              <p>This will clear all current data and return to the GitHub URL input. Are you sure?</p>
-              <div className="confirm-dialog-buttons">
-                <button 
-                  onClick={handleCancelStartNew}
-                  disabled={isClearing}
-                  className="cancel-button"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleConfirmStartNew}
-                  disabled={isClearing}
-                  className="confirm-button"
-                >
-                  {isClearing ? 'Clearing...' : 'Yes, Start New'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        
         <div className="chat-history">
           {chatHistory.length === 0 ? (
-            <div className="empty-chat">
-              <div className="empty-chat-icon">
-                <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect width="64" height="64" rx="32" fill="url(#paint0_linear)" fillOpacity="0.1"/>
-                  <path d="M42.6667 21.3333H21.3334C19.8667 21.3333 18.6667 22.5333 18.6667 24V40C18.6667 41.4667 19.8667 42.6667 21.3334 42.6667H42.6667C44.1334 42.6667 45.3334 41.4667 45.3334 40V24C45.3334 22.5333 44.1334 21.3333 42.6667 21.3333ZM41.3334 28H37.3334V36H34.6667V28H30.6667V25.3333H41.3334V28Z" fill="var(--accent-color)"/>
-                  <path d="M18.6667 32L32 25.3333L45.3334 32" stroke="var(--accent-color)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <defs>
-                    <linearGradient id="paint0_linear" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-                      <stop stopColor="var(--accent-color)" />
-                      <stop offset="1" stopColor="var(--accent-dark)" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-              </div>
-              <h3>Start Your Conversation</h3>
-              <p>Ask questions about your code's structure, functions, and relationships</p>
+            <div className="card text-center" style={{margin: '2rem auto', maxWidth: '600px', padding: '2rem'}}>
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{margin: '0 auto 1rem'}}>
+                <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2"/>
+                <path d="M12 8V12L14.5 14.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M9 17C9.85038 17.3756 10.8846 17.5 12 17.5C13.1154 17.5 14.1496 17.3756 15 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              <h3 className="mb-2">Start Your Conversation</h3>
+              <p>Ask questions about your code's structure, functions, and relationships to get detailed insights.</p>
             </div>
           ) : (
             chatHistory.map((msg, index) => (
-              <div key={index} className={`chat-message ${msg.sender}`}>
-                <div className="avatar">
-                  <div className={`avatar-icon ${msg.sender}`}></div>
-                </div>
-                <div className="message-content">
-                  {typeof msg.text === 'string' ? formatMessage(msg.text) : msg.text}
-                </div>
+              <div 
+                key={index} 
+                className={`chat-message ${msg.sender === 'user' ? 'user-message' : 'ai-message'}`}
+              >
+                {typeof msg.text === 'string' ? formatMessage(msg.text) : msg.text}
+                <span className="message-time">
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
             ))
           )}
           {isChatLoading && (
-            <div className="chat-message ai">
-              <div className="avatar">
-                <div className="avatar-icon ai"></div>
-              </div>
-              <div className="message-content">
-                <p>Thinking<span className="typing-indicator"></span></p>
+            <div className="chat-message ai-message">
+              <div className="typing">
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
               </div>
             </div>
           )}
           <div ref={chatEndRef} />
         </div>
-        <div className="chat-footer">
+        
+        <div className="chat-input-container">
           <form onSubmit={handleChatQuerySubmit} className="chat-form">
             <input
               type="text"
+              className="chat-input"
               value={chatQuery}
               onChange={(e) => setChatQuery(e.target.value)}
               placeholder="Ask about your code structure, functions, relationships..."
               disabled={isChatLoading}
             />
-            <button type="submit" disabled={isChatLoading || !chatQuery.trim()}></button>
+            <button 
+              type="submit" 
+              className="chat-submit-btn"
+              disabled={isChatLoading || !chatQuery.trim()}
+              aria-label="Send message"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </form>
-          <div className="footer-text">
-            Ask questions about your codebase structure, functions, and relationships
-          </div>
         </div>
       </div>
     );
@@ -777,8 +804,38 @@ function App() {
   };
 
   return (
-    <div className={`App ${theme}-theme`}>
-      {renderContent()}
+    <div className="app-container">
+      {renderHeader()}
+      <main className="main-content">
+        {renderContent()}
+      </main>
+      
+      {showConfirmDialog && (
+        <div className="confirm-dialog">
+          <div className="dialog-content">
+            <h2 className="dialog-title">Start New Analysis?</h2>
+            <p>
+              This will clear all current data and conversation history. Are you sure you want to continue?
+            </p>
+            <div className="dialog-buttons">
+              <button 
+                className="btn dialog-cancel"
+                onClick={handleCancelStartNew}
+                disabled={isClearing}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn dialog-confirm"
+                onClick={handleConfirmStartNew}
+                disabled={isClearing}
+              >
+                {isClearing ? 'Clearing...' : 'Yes, start new'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
