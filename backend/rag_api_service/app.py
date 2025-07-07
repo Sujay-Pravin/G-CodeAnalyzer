@@ -8,7 +8,7 @@ from neo4j.exceptions import ServiceUnavailable, Neo4jError
 import vertexai
 from vertexai.language_models import TextEmbeddingModel
 from vertexai.generative_models import GenerativeModel
-from google.api_core.exceptions import GoogleAPIError # For more general Vertex AI/Google Cloud errors
+from google.api_core.exceptions import GoogleAPIError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -225,14 +225,12 @@ def generate_embeddings(text):
 
 def retrieve_graph_context(query_embedding, user_query, session):
     """
-    Retrieves relevant context from the Neo4j graph using vector search and Cypher queries.
-    Enhanced with more sophisticated queries and better context extraction.
+    Retrieves relevant context from the Neo4j graph using hybrid vector search + graph traversal.
     """
     context = []
     
     try:
         # --- 1. Vector Search (Primary Method) ---
-        # Use vector search to find relevant entities - search both function and file indexes
         app.logger.info("Executing entity vector search query...")
         
         # Search function index
@@ -240,7 +238,7 @@ def retrieve_graph_context(query_embedding, user_query, session):
         CALL db.index.vector.queryNodes('function_index', 5, $query_embedding) YIELD node, score
         WHERE score > 0.6 AND node.file_path IS NOT NULL
         RETURN node.name AS name, labels(node)[0] as type, node.file_path AS filePath, 
-               node.description as description, score
+               node.description as description, node.context_sample as code, score
         ORDER BY score DESC
         """
         function_results = session.run(function_query, query_embedding=query_embedding).data()
@@ -257,6 +255,7 @@ def retrieve_graph_context(query_embedding, user_query, session):
         
         # Combine results
         entity_results = function_results + file_results
+        entity_ids = [f"{res['name']}-{res['filePath']}" for res in entity_results]
         
         for res in entity_results:
             entity_type = res.get('type', 'Entity')
@@ -270,9 +269,75 @@ def retrieve_graph_context(query_embedding, user_query, session):
             else:
                 context.append(f"In file '{file_path}', there is a {entity_type.lower()} called '{res['name']}'. {description}")
         
-        app.logger.info(f"Found {len(entity_results)} entity contexts via vector search ({len(function_results)} functions, {len(file_results)} files).")
+        app.logger.info(f"Found {len(entity_results)} entity contexts via vector search.")
         
-        # --- 2. Keyword Search (Complementary Method) ---
+        # --- 2. Graph Traversal Expansion ---
+        if entity_results:
+            app.logger.info("Expanding context via graph traversal...")
+            traversal_query = """
+            UNWIND $entityIds AS entityId
+            WITH split(entityId, '-')[0] AS name, split(entityId, '-')[1] AS filePath
+            MATCH (start)
+            WHERE (start:Function AND start.name = name AND start.file_path = filePath)
+               OR (start:File AND start.path = filePath)
+            CALL apoc.path.expandConfig(start, {
+                relationshipFilter: "CALLS|USES|DEFINES|CONTAINS|IMPORTS|DEPENDS_ON|READS_FROM|WRITES_TO",
+                minLevel: 1,
+                maxLevel: 2,
+                uniqueness: "NODE_GLOBAL"
+            }) YIELD path
+            WITH last(nodes(path)) AS node, start
+            WHERE node <> start
+            RETURN DISTINCT node.name AS name, labels(node)[0] as type, 
+                   coalesce(node.file_path, node.path) AS filePath,
+                   node.description as description, node.context_sample as code
+            LIMIT 20
+            """
+            traversal_results = session.run(traversal_query, entityIds=entity_ids).data()
+            
+            for res in traversal_results:
+                entity_type = res.get('type', 'Entity')
+                file_path = res.get('filePath', 'unknown path')
+                description = res.get('description', '')
+                code_sample = res.get('code', '')
+                if code_sample:
+                    context.append(f"Via graph traversal: In file '{file_path}', there is a {entity_type.lower()} called '{res['name']}'. {description}\nCode:\n```\n{code_sample}\n```")
+                else:
+                    context.append(f"Via graph traversal: In file '{file_path}', there is a {entity_type.lower()} called '{res['name']}'. {description}")
+        
+        # --- 3. Shortest Path Connections ---
+        if len(entity_results) >= 2:
+            app.logger.info("Finding connections between top entities...")
+            top_entities = [res['name'] for res in entity_results[:2]]
+            path_query = """
+            MATCH (a), (b)
+            WHERE a.name = $entity1 AND b.name = $entity2
+            CALL apoc.algo.allSimplePaths(a, b, null, 3) YIELD path
+            WITH path, length(path) AS length
+            ORDER BY length ASC
+            LIMIT 3
+            UNWIND nodes(path) AS node
+            RETURN DISTINCT node.name AS name, labels(node)[0] as type, 
+                   coalesce(node.file_path, node.path) AS filePath,
+                   node.description as description, node.context_sample as code
+            """
+            path_results = session.run(
+                path_query, 
+                entity1=top_entities[0], 
+                entity2=top_entities[1]
+            ).data()
+            
+            for res in path_results:
+                entity_type = res.get('type', 'Entity')
+                file_path = res.get('filePath', 'unknown path')
+                description = res.get('description', '')
+                code_sample = res.get('code', '')
+                if code_sample:
+                    context.append(f"Via path connection: In file '{file_path}', there is a {entity_type.lower()} called '{res['name']}'. {description}\nCode:\n```\n{code_sample}\n```")
+                else:
+                    context.append(f"Via path connection: In file '{file_path}', there is a {entity_type.lower()} called '{res['name']}'. {description}")
+        
+        # --- 4. Keyword Search (Complementary Method) ---
         # Extract keywords from the user query
         keywords = [word.lower() for word in user_query.split() if len(word) > 2]
         keywords = [word for word in keywords if word not in 
@@ -319,40 +384,7 @@ def retrieve_graph_context(query_embedding, user_query, session):
                 else:
                     context.append(f"The {entity_type.lower()} '{res['name']}' in '{res['filePath']}' appears relevant to your question. {description}")
         
-        # --- 3. Relationship Exploration ---
-        # If we found entities, explore their relationships
-        if entity_results:
-            top_entity = entity_results[0]
-            entity_name = top_entity['name']
-            entity_file = top_entity.get('filePath')
-            
-            # Skip relationship exploration if we don't have a file path
-            if entity_file:
-                # Find relationships for the top entity - handle both file_path and path properties
-                rel_query = """
-                MATCH (n)-[r]->(m)
-                WHERE n.name = $name AND (n.file_path = $filePath OR n.path = $filePath)
-                RETURN n.name as source, type(r) as relationship, m.name as target, 
-                       labels(m)[0] as targetType, r.context as context
-                UNION
-                MATCH (n)<-[r]-(m)
-                WHERE m.name = $name AND (m.file_path = $filePath OR m.path = $filePath)
-                RETURN m.name as source, type(r) as relationship, n.name as target, 
-                       labels(n)[0] as targetType, r.context as context
-                LIMIT 8
-                """
-                app.logger.info(f"Exploring relationships for entity: {entity_name}")
-                rel_results = session.run(rel_query, name=entity_name, filePath=entity_file).data()
-                
-                for res in rel_results:
-                    rel_context = res.get('context', '')
-                    relationship = res['relationship'].lower().replace('_', ' ')
-                    if rel_context:
-                        context.append(f"'{res['source']}' {relationship} '{res['target']}'. {rel_context}")
-                    else:
-                        context.append(f"'{res['source']}' {relationship} '{res['target']}'.")
-        
-        # --- 4. File Context ---
+        # --- 5. File Context ---
         # Get information about the files containing the entities
         if entity_results:
             # Collect file paths, handling both file_path and path properties
@@ -462,17 +494,22 @@ def chat_with_graph():
                 conversation_context += f"{role.capitalize()}: {content}\n"
             
         prompt = f"""
-        You are an AI assistant specialized in analyzing and explaining codebases based on a knowledge graph.
-        Your task is to provide clear, accurate, and helpful information about code structure, functionality, and relationships in natural, conversational language.
-        
-        Important formatting guidelines:
-        1. Respond in plain, conversational English - avoid bullet points and numbered lists unless absolutely necessary
-        2. Format your response as a cohesive narrative rather than technical documentation
-        3. Use paragraphs to organize information, not lists or technical outlines
-        4. Write as if you're explaining to a fellow developer in a friendly conversation
-        5. Focus on clarity and readability over technical formalism
-        6. When code samples are provided, refer to them directly in your explanation
-        7. Analyze any code samples provided to give specific, concrete details about how the code works
+        You are a codebase expert assistant. Provide detailed technical explanations using ONLY the context below.
+        Response guidelines:
+        - Keep responses concise and under 200 words total
+        - Be direct and focused on answering exactly what was asked
+        - Focus on code functionality, relationships, and structure
+        - Include only the most important implementation details
+        - Never add disclaimers or conversational fluff
+        - ALWAYS start your response with the relevant code snippet in a code block
+        - Format explanations as:
+          ```language
+          // The actual code snippet being discussed
+          ```
+          [File] → [Entity]: (IMPORTANT: Use only the base filename without any path, e.g. "main.py → function_name" not "cloned_repos/xyz/main.py → function_name")
+          - Purpose: [Concise purpose]
+          - Implementation: [Key technical details]
+          - Relationships: [Connections to other entities]
         
         {conversation_context}
         
@@ -482,14 +519,15 @@ def chat_with_graph():
         ---
         {graph_context}
         ---
-        
-        Based on this context, provide a clear, conversational, and technically accurate response that reads naturally.
-        Use plain language and avoid overly structured formatting like bullet points or numbered lists.
-        If code samples are provided, analyze them in detail and refer to specific parts of the code in your explanation.
-        If you can't answer based on the provided context, acknowledge this limitation conversationally.
         """
         app.logger.info("Calling Generative Model (Gemini)...")
-        response = generative_model.generate_content(prompt)
+        response = generative_model.generate_content(
+            prompt,
+            generation_config={
+                # "max_output_tokens": 600,  # Increased for technical depth
+                "temperature": 0.3         # Balanced creativity
+            }
+        )
         app.logger.info("Gemini response received.")
 
         return jsonify({
