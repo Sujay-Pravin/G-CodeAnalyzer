@@ -88,19 +88,22 @@ class CodeParser:
                 return language
         return 'unknown'
 
-    def parse_content(self, file_path: str, content: str) -> Tuple[List[CodeEntity], List[CodeRelationship]]:
+    def parse_content(self, file_path: str, content: str) -> Tuple[List[CodeEntity], List[CodeRelationship], str]:
         """Parse the content of a single file."""
         language = self.detect_language(file_path, content)
         logger.info(f"Detected language for {file_path}: {language}")
+        
+        # Store the first 2000 characters as context sample
+        context_sample = content[:2000]
         
         ai_entities, ai_relationships = self.extract_with_ai(content, language, file_path)
         
         if not ai_entities:
             logger.info(f"AI returned no entities for {file_path}, falling back to regex.")
             regex_entities, regex_relationships = self.extract_with_regex(content, language, file_path)
-            return regex_entities, regex_relationships
+            return regex_entities, regex_relationships, context_sample
         
-        return ai_entities, ai_relationships
+        return ai_entities, ai_relationships, context_sample
 
     def extract_with_ai(self, content: str, language: str, file_path: str) -> Tuple[List[CodeEntity], List[CodeRelationship]]:
         """Extract entities and relationships using Vertex AI."""
@@ -567,7 +570,7 @@ def code_parser_entrypoint(cloud_event):
             content = raw_content.decode('utf-8', errors='replace')
 
         # Parse the code
-        entities, relationships = parser.parse_content(file_name, content)
+        entities, relationships, context_sample = parser.parse_content(file_name, content)
         
         # Prepare data for upload with improved repo_id extraction
         repo_id = None
@@ -584,7 +587,8 @@ def code_parser_entrypoint(cloud_event):
             "filename": file_name,
             "original_path": file_path_from_metadata or file_name,
             "entities": [e.to_dict() for e in entities],
-            "relationships": [r.to_dict() for r in relationships]
+            "relationships": [r.to_dict() for r in relationships],
+            "context_sample": context_sample
         }
         
         # Upload results to the parsed data bucket

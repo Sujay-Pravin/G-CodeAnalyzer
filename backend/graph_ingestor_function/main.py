@@ -58,6 +58,7 @@ def ingest_data_to_neo4j(parsed_data, session):
     filename = parsed_data.get('filename')
     entities = parsed_data.get('entities', [])
     relationships = parsed_data.get('relationships', [])
+    context_sample = parsed_data.get('context_sample', '')
 
     if not filename:
         print("Skipping ingestion: filename is missing from parsed data.")
@@ -101,11 +102,16 @@ def ingest_data_to_neo4j(parsed_data, session):
     elif file_extension in ['.html', '.xml', '.json', '.yaml', '.yml', '.csv', '.dat']:
         file_type = "DataFile"
     
-    # Create the File node with appropriate type
-    file_name = os.path.basename(filename)
+    # Create the File node with context sample
     session.run(
-        f"MERGE (f:{file_type}:File {{path: $filename}}) SET f.repo_id = $repo_id, f.name = $file_name, f.extension = $extension",
-        filename=filename, repo_id=repo_id, file_name=file_name, extension=file_extension
+        f"MERGE (f:{file_type}:File {{path: $filename}}) " 
+        "SET f.repo_id = $repo_id, f.name = $file_name, "
+        "f.extension = $extension, f.context_sample = $context_sample",
+        filename=filename, 
+        repo_id=repo_id, 
+        file_name=os.path.basename(filename), 
+        extension=file_extension,
+        context_sample=context_sample
     )
 
     # Track import files for later processing
