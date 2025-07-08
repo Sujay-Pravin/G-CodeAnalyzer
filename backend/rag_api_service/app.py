@@ -543,6 +543,144 @@ def retrieve_graph_context(query_embedding, user_query, session):
     else:
         return "\n".join(context)
 
+def retrieve_file_specific_context(query_embedding, user_query, repo_id, file_path, session, context_json=None):
+    """
+    Retrieves relevant context from the Neo4j graph, focused specifically on the selected file.
+    """
+    context = []
+    
+    try:
+        # If context_json is provided, we can use it directly
+        if context_json:
+            try:
+                file_data = json.loads(context_json)
+                # Format the context data
+                context.append(f"FILE: {file_path}")
+                if file_data.get('language'):
+                    context.append(f"LANGUAGE: {file_data['language']}")
+                if file_data.get('context_sample'):
+                    context.append(f"CODE SAMPLE:\n```{file_data['language']}\n{file_data['context_sample'][:1000]}\n```\n")
+            except json.JSONDecodeError:
+                app.logger.error("Could not parse provided context JSON")
+        
+        # Query for entities directly related to this file
+        file_query = """
+        MATCH (f:File {repo_id: $repo_id, path: $file_path})
+        OPTIONAL MATCH (f)-[r]->(e)
+        RETURN type(r) as relationship_type, e
+        LIMIT 30
+        """
+        
+        file_results = session.run(file_query, repo_id=repo_id, file_path=file_path).data()
+        
+        if file_results:
+            # Group entities by relationship type
+            entities_by_type = {}
+            for result in file_results:
+                rel_type = result.get('relationship_type')
+                entity = result.get('e')
+                
+                if rel_type and entity:
+                    if rel_type not in entities_by_type:
+                        entities_by_type[rel_type] = []
+                    
+                    # Format the entity data
+                    entity_data = dict(entity)
+                    entity_type = list(entity.labels)[0] if entity.labels else "Unknown"
+                    
+                    entities_by_type[rel_type].append({
+                        "type": entity_type,
+                        "data": entity_data
+                    })
+            
+            # Format the context by relationship type
+            for rel_type, entities in entities_by_type.items():
+                context.append(f"\n{rel_type.upper()} RELATIONSHIPS:")
+                for entity in entities:
+                    entity_type = entity["type"]
+                    entity_data = entity["data"]
+                    
+                    if entity_type == "Function":
+                        context.append(f"- FUNCTION: {entity_data.get('name', 'Unnamed')}")
+                        if entity_data.get('description'):
+                            context.append(f"  DESCRIPTION: {entity_data.get('description')}")
+                        if entity_data.get('properties') and entity_data['properties'].get('params'):
+                            context.append(f"  PARAMETERS: {', '.join(entity_data['properties']['params'])}")
+                        if entity_data.get('properties') and entity_data['properties'].get('return_type'):
+                            context.append(f"  RETURN TYPE: {entity_data['properties']['return_type']}")
+                        if entity_data.get('properties') and entity_data['properties'].get('context_sample'):
+                            context.append(f"  CODE SNIPPET:\n```\n{entity_data['properties']['context_sample'][:500]}\n```\n")
+                    
+                    elif entity_type == "Variable":
+                        context.append(f"- VARIABLE: {entity_data.get('name', 'Unnamed')}")
+                        if entity_data.get('description'):
+                            context.append(f"  DESCRIPTION: {entity_data.get('description')}")
+                        if entity_data.get('properties') and entity_data['properties'].get('data_type'):
+                            context.append(f"  TYPE: {entity_data['properties']['data_type']}")
+                    
+                    elif entity_type == "Class":
+                        context.append(f"- CLASS: {entity_data.get('name', 'Unnamed')}")
+                        if entity_data.get('description'):
+                            context.append(f"  DESCRIPTION: {entity_data.get('description')}")
+                        if entity_data.get('properties') and entity_data['properties'].get('fields'):
+                            context.append(f"  FIELDS: {', '.join(entity_data['properties']['fields'])}")
+                        if entity_data.get('properties') and entity_data['properties'].get('context_sample'):
+                            context.append(f"  CODE SNIPPET:\n```\n{entity_data['properties']['context_sample'][:500]}\n```\n")
+                    
+                    elif entity_type == "Operation":
+                        context.append(f"- OPERATION: {entity_data.get('name', 'Unnamed')}")
+                        if entity_data.get('description'):
+                            context.append(f"  DESCRIPTION: {entity_data.get('description')}")
+                        if entity_data.get('properties') and entity_data['properties'].get('code_snippet'):
+                            context.append(f"  CODE SNIPPET:\n```\n{entity_data['properties']['code_snippet'][:500]}\n```\n")
+                    
+                    else:
+                        # For other entity types
+                        context.append(f"- {entity_type}: {entity_data.get('name', 'Unnamed')}")
+                        if entity_data.get('description'):
+                            context.append(f"  DESCRIPTION: {entity_data.get('description')}")
+
+        # Also perform a vector search to find similar code snippets in the file
+        vector_query = """
+        MATCH (f:File {repo_id: $repo_id, path: $file_path})-[:CONTAINS]->(e)
+        WHERE e:Function OR e:Class OR e:Operation
+        WITH e, vector.similarity(e.embedding, $embedding) AS score
+        WHERE score > 0.7
+        RETURN e
+        ORDER BY score DESC
+        LIMIT 2
+        """
+        
+        vector_results = session.run(vector_query, 
+                                     repo_id=repo_id, 
+                                     file_path=file_path,
+                                     embedding=query_embedding).data()
+        
+        if vector_results:
+            context.append("\nRELEVANT CODE SECTIONS:")
+            for result in vector_results:
+                entity = result.get('e')
+                if entity:
+                    entity_data = dict(entity)
+                    entity_type = list(entity.labels)[0] if entity.labels else "Unknown"
+                    
+                    context.append(f"- {entity_type}: {entity_data.get('name', 'Unnamed')}")
+                    if entity_data.get('description'):
+                        context.append(f"  DESCRIPTION: {entity_data.get('description')}")
+                    
+                    # Get code snippet from properties based on entity type
+                    if entity_type == "Function" or entity_type == "Class":
+                        if entity_data.get('properties') and entity_data['properties'].get('context_sample'):
+                            context.append(f"  CODE SNIPPET:\n```\n{entity_data['properties']['context_sample'][:1000]}\n```\n")
+                    elif entity_type == "Operation":
+                        if entity_data.get('properties') and entity_data['properties'].get('code_snippet'):
+                            context.append(f"  CODE SNIPPET:\n```\n{entity_data['properties']['code_snippet'][:1000]}\n```\n")
+
+    except Exception as e:
+        app.logger.error(f"Error retrieving file-specific context: {e}", exc_info=True)
+    
+    return "\n".join(context)
+
 # --- API Endpoints ---
 @app.route('/api/chat', methods=['POST'])
 def chat_with_graph():
@@ -550,6 +688,9 @@ def chat_with_graph():
     data = request.json
     user_query = data.get('query')
     conversation_history = data.get('history', [])
+    repo_id = data.get('repo_id')
+    file_path = data.get('file_path')
+    context_json = data.get('context')
 
     if not user_query:
         app.logger.warning("Chat query received with no 'query' field.")
@@ -568,9 +709,17 @@ def chat_with_graph():
             }), 500
 
         with driver.session() as session:
-            app.logger.info("Retrieving graph context...")
+            app.logger.info("Retrieving context...")
+            
+            # Use file-specific context if file_path is provided
+            if file_path and repo_id:
+                app.logger.info(f"Using file-specific context for {file_path}")
+                graph_context = retrieve_file_specific_context(query_embedding, user_query, repo_id, file_path, session, context_json)
+            else:
+                app.logger.info("Using general graph context")
             graph_context = retrieve_graph_context(query_embedding, user_query, session)
-            app.logger.info(f"Graph context retrieved: {'Context found' if graph_context else 'No context found'}")
+                
+            app.logger.info(f"Context retrieved: {'Context found' if graph_context else 'No context found'}")
 
             # Print the human-readable context to the terminal
             print("\n===== Context sent to Gemini =====\n")
@@ -586,6 +735,33 @@ def chat_with_graph():
                 content = msg.get('content', '')
                 conversation_context += f"{role.capitalize()}: {content}\n"
             
+        # Customize the prompt based on whether we're using file-specific context
+        if file_path:
+            prompt = f"""
+            You are a codebase expert assistant. Provide detailed technical explanations about the file {file_path} using ONLY the context below.
+            Response guidelines:
+            - Keep responses concise and under 200 words total
+            - Be direct and focused on answering exactly what was asked
+            - Focus specifically on the selected file's code functionality, relationships, and structure
+            - Only refer to entities that are directly related to this file
+            - Include only the most important implementation details
+            - Never add disclaimers or conversational fluff
+            - If referring to code snippets, always include them in a code block
+            - Format code as:
+              ```
+              // The actual code snippet being discussed
+              ```
+            
+            {conversation_context}
+            
+            User Question: {user_query}
+            
+            Context about file {file_path}:
+            ---
+            {graph_context}
+            ---
+            """
+        else:
         prompt = f"""
         You are a codebase expert assistant. Provide detailed technical explanations using ONLY the context below.
         Response guidelines:
@@ -596,8 +772,9 @@ def chat_with_graph():
         - Never add disclaimers or conversational fluff
         - ALWAYS start your response with the relevant code snippet in a code block
         - Format explanations as:
-          language
+              ```language
           // The actual code snippet being discussed
+              ```
           
           [File] → [Entity]: (IMPORTANT: Use only the base filename without any path, e.g. "main.py → function_name" not "cloned_repos/xyz/main.py → function_name")
           - Purpose: [Concise purpose]
@@ -613,6 +790,7 @@ def chat_with_graph():
         {graph_context}
         ---
         """
+            
         app.logger.info("Calling Generative Model (Gemini)...")
         response = generative_model.generate_content(
             prompt,
@@ -624,6 +802,7 @@ def chat_with_graph():
         app.logger.info("Gemini response received.")
 
         return jsonify({
+            "success": True,
             "response": response.text,
             "context_used": graph_context
         })
@@ -711,6 +890,196 @@ def clear_database():
         return jsonify({
             "success": False, 
             "message": f"Unexpected error: {str(e)}"
+        }), 500
+
+# --- Neo4j Graph API Routes ---
+@app.route('/api/graph/files', methods=['GET'])
+@app.route('/graph/files', methods=['GET'])
+def get_files():
+    """Get all files from Neo4j for a specific repo"""
+    repo_id = request.args.get('repo_id')
+    
+    if not repo_id:
+        return jsonify({'success': False, 'message': 'Repository ID is required'}), 400
+        
+    try:
+        driver = get_neo4j_driver()
+        with driver.session() as session:
+            # Query for all file nodes for this repo
+            query = """
+            MATCH (f:File {repo_id: $repo_id})
+            RETURN f.path AS path, f.name AS name
+            ORDER BY f.path
+            """
+            result = session.run(query, repo_id=repo_id).data()
+            
+            # Convert result to file list
+            files = [{'path': file['path'], 'name': file['name']} for file in result]
+            
+            return jsonify({
+                'success': True,
+                'files': files
+            })
+            
+    except Exception as e:
+        app.logger.error(f"Error retrieving files from Neo4j: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f"Failed to retrieve files: {str(e)}"
+        }), 500
+
+@app.route('/api/graph/file-data', methods=['GET'])
+@app.route('/graph/file-data', methods=['GET'])
+def get_file_data():
+    """Get file data and related entities for a specific file"""
+    repo_id = request.args.get('repo_id')
+    file_path = request.args.get('file_path')
+    
+    if not repo_id or not file_path:
+        return jsonify({'success': False, 'message': 'Repository ID and file path are required'}), 400
+    
+    try:
+        driver = get_neo4j_driver()
+        with driver.session() as session:
+            # Query for file details and entities
+            query = """
+            MATCH (f:File {repo_id: $repo_id, path: $file_path})
+            OPTIONAL MATCH (f)-[r]->(e)
+            WITH f, type(r) AS relationship_type, collect({
+                id: id(e),
+                type: head(labels(e)),
+                name: COALESCE(e.name, e.path, ''),
+                properties: properties(e)
+            }) AS entities
+            RETURN 
+                f.path AS path,
+                f.name AS name,
+                f.language AS language,
+                f.context_sample AS context_sample,
+                collect({
+                    relationship: relationship_type,
+                    entities: entities
+                }) AS related_data
+            """
+            result = session.run(query, repo_id=repo_id, file_path=file_path).single()
+            
+            if not result:
+                return jsonify({
+                    'success': False,
+                    'message': 'File not found in database'
+                }), 404
+                
+            file_data = {
+                'path': result['path'],
+                'name': result['name'],
+                'language': result['language'],
+                'context_sample': result['context_sample'],
+                'related_entities': result['related_data']
+            }
+            
+            return jsonify({
+                'success': True,
+                'fileData': file_data
+            })
+            
+    except Exception as e:
+        app.logger.error(f"Error retrieving file data from Neo4j: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f"Failed to retrieve file data: {str(e)}"
+        }), 500
+        
+@app.route('/api/graph/file-graph', methods=['GET'])
+@app.route('/graph/file-graph', methods=['GET'])
+def get_file_graph():
+    """Get graph data for visualization of a specific file and its relationships"""
+    repo_id = request.args.get('repo_id')
+    file_path = request.args.get('file_path')
+    
+    if not repo_id or not file_path:
+        return jsonify({'success': False, 'message': 'Repository ID and file path are required'}), 400
+    
+    try:
+        driver = get_neo4j_driver()
+        with driver.session() as session:
+            # Query for file and its neighborhood (2 hops)
+            query = """
+            MATCH (file:File {repo_id: $repo_id, path: $file_path})
+            CALL {
+                WITH file
+                MATCH (file)-[r1]-(n1)
+                OPTIONAL MATCH (n1)-[r2]-(n2)
+                WHERE n2 <> file
+                RETURN n1, r1, n2, r2
+            }
+            RETURN 
+                collect(DISTINCT file) + collect(DISTINCT n1) + collect(DISTINCT n2) AS nodes,
+                collect(DISTINCT r1) + collect(DISTINCT r2) AS relationships
+            """
+            result = session.run(query, repo_id=repo_id, file_path=file_path).single()
+            
+            if not result:
+                return jsonify({
+                    'success': False,
+                    'message': 'File not found or has no relationships'
+                }), 404
+            
+            # Process nodes
+            nodes = []
+            node_ids = set()
+            
+            for node in result['nodes']:
+                if node and node.id not in node_ids:
+                    node_ids.add(node.id)
+                    node_data = dict(node.items())
+                    labels = list(node.labels)
+                    
+                    # Use the primary label as the node type
+                    node_type = labels[0] if labels else 'Unknown'
+                    
+                    # Create a good display label
+                    if 'name' in node_data:
+                        label = node_data['name']
+                    elif 'path' in node_data:
+                        label = node_data['path'].split('/')[-1]
+                    else:
+                        label = f"Node-{node.id}"
+                    
+                    nodes.append({
+                        'id': str(node.id),
+                        'label': label,
+                        'type': node_type,
+                        'properties': node_data
+                    })
+            
+            # Process relationships
+            links = []
+            rel_ids = set()
+            
+            for rel in result['relationships']:
+                if rel and rel.id not in rel_ids:
+                    rel_ids.add(rel.id)
+                    links.append({
+                        'id': str(rel.id),
+                        'source': str(rel.start_node.id),
+                        'target': str(rel.end_node.id),
+                        'type': rel.type,
+                        'label': rel.type.replace('_', ' ')
+                    })
+            
+            return jsonify({
+                'success': True,
+                'graphData': {
+                    'nodes': nodes,
+                    'links': links
+                }
+            })
+    
+    except Exception as e:
+        app.logger.error(f"Error retrieving graph data from Neo4j: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f"Failed to retrieve graph data: {str(e)}"
         }), 500
 
 # --- Main Execution Block ---
