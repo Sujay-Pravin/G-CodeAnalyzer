@@ -87,20 +87,151 @@ class CodeParser:
             if score >= 2:
                 return language
         return 'unknown'
+        
+    def extract_code_operations(self, content: str, language: str) -> List[Dict[str, str]]:
+        """Identify different coding operations/examples within a single file."""
+        operations = []
+        
+        # Look for numbered operations or challenges
+        numbered_operations = re.findall(r'(?:\/\/|\/\*|\#|--)\s*(\d+)\.\s*(.*?)(?:\n|$)', content)
+        for num, desc in numbered_operations:
+            operations.append({
+                'operation_number': num,
+                'description': desc.strip(),
+                'type': 'challenge'
+            })
+        
+        # Look for titled sections (especially in example/challenge files)
+        section_patterns = [
+            # Match header comments that indicate a new problem or solution
+            r'(?:\/\/|\/\*|\#|--)\s*(?:-+)?\s*(?:Problem|Exercise|Challenge|Solution|Example)\s*(?:\d+)?:\s*([^\n]*)',
+            # Match function headers with descriptive comments above
+            r'(?:\/\/|\/\*|\#|--)\s*([^\n]*?)(?:\n|\r\n?)(?:\/\/|\/\*|\#|--)[^\n]*\n(?:.*?)(?:function|def|void|int|float|double|char)\s+(\w+)'
+        ]
+        
+        for pattern in section_patterns:
+            matches = re.finditer(pattern, content, re.MULTILINE | re.DOTALL)
+            for match in matches:
+                if len(match.groups()) > 0:
+                    desc = match.group(1).strip()
+                    # Skip if too short or contains just dashes/characters
+                    if len(desc) > 5 and not re.match(r'^[^a-zA-Z0-9]*$', desc):
+                        func_name = match.group(2) if len(match.groups()) > 1 else None
+                        
+                        # Calculate approximate start position for the code snippet
+                        start_pos = match.start()
+                        # Find the next similar pattern or end of file
+                        next_match = re.search(pattern, content[start_pos + 1:], re.MULTILINE | re.DOTALL)
+                        end_pos = start_pos + 1 + next_match.start() if next_match else len(content)
+                        
+                        # Extract code snippet between patterns
+                        code_snippet = content[start_pos:end_pos].strip()
+                        
+                        operations.append({
+                            'description': desc,
+                            'function_name': func_name,
+                            'code_snippet': code_snippet,
+                            'type': 'section'
+                        })
+                        
+        # For C/C++ files, detect main() functions as separate operations
+        if language in ['c', 'cpp']:
+            main_funcs = re.finditer(r'(?:int|void)\s+main\s*\([^\)]*\)\s*\{', content)
+            for match in main_funcs:
+                # Find start of the main function
+                start_pos = match.start()
+                # Find the end of the function using bracket matching
+                end_pos = start_pos
+                bracket_count = 0
+                found_opening = False
+                
+                for i in range(start_pos, len(content)):
+                    if content[i] == '{':
+                        bracket_count += 1
+                        found_opening = True
+                    elif content[i] == '}':
+                        bracket_count -= 1
+                        
+                    if found_opening and bracket_count == 0:
+                        end_pos = i + 1
+                        break
+                
+                # Get surrounding comments for context
+                context_start = max(0, start_pos - 300)  # Look back 300 chars for comments
+                comment_block = content[context_start:start_pos]
+                comment_match = re.search(r'(?:\/\/|\/\*)(.*?)(?:\*\/|\n)', comment_block, re.DOTALL)
+                
+                description = "Main function implementation"
+                if comment_match:
+                    comment_text = comment_match.group(1).strip()
+                    if len(comment_text) > 5:  # Only use meaningful comments
+                        description = comment_text
+                
+                code_snippet = content[start_pos:end_pos]
+                
+                operations.append({
+                    'description': description,
+                    'function_name': 'main',
+                    'code_snippet': code_snippet,
+                    'type': 'main_function'
+                })
+        
+        return operations
 
-    def parse_content(self, file_path: str, content: str) -> Tuple[List[CodeEntity], List[CodeRelationship]]:
+    def parse_content(self, file_path: str, content: str) -> Tuple[List[CodeEntity], List[CodeRelationship], str]:
         """Parse the content of a single file."""
         language = self.detect_language(file_path, content)
         logger.info(f"Detected language for {file_path}: {language}")
         
+        # Store the first 2000 characters as context sample
+        context_sample = content[:2000]
+        
         ai_entities, ai_relationships = self.extract_with_ai(content, language, file_path)
+        
+        # Extract operations/examples from the content
+        operations = self.extract_code_operations(content, language)
+        
+        # If operations found, add them as special entities
+        if operations:
+            logger.info(f"Found {len(operations)} distinct operations/examples in {file_path}")
+            
+            for i, op in enumerate(operations):
+                # Create a unique name for the operation
+                op_name = f"operation_{i+1}"
+                if op.get('function_name'):
+                    op_name = op.get('function_name') or f"operation_{i+1}"
+                elif op.get('operation_number'):
+                    op_name = f"operation_{op.get('operation_number')}"
+                
+                # Create an entity for this operation
+                entity = CodeEntity(
+                    name=op_name,
+                    entity_type="Operation",  # Special entity type for operations
+                    file_path=file_path,
+                    description=op.get('description', 'Code operation example'),
+                    properties={
+                        "code_snippet": op.get('code_snippet', ''),
+                        "operation_type": op.get('type', 'operation'),
+                        "source_file": os.path.basename(file_path)
+                    }
+                )
+                ai_entities.append(entity)
+                
+                # Create a relationship between the file and this operation
+                relationship = CodeRelationship(
+                    source=os.path.basename(file_path),
+                    target=op_name,
+                    relationship_type="contains_operation",
+                    context=f"File {os.path.basename(file_path)} contains operation: {op.get('description', '')}"
+                )
+                ai_relationships.append(relationship)
         
         if not ai_entities:
             logger.info(f"AI returned no entities for {file_path}, falling back to regex.")
             regex_entities, regex_relationships = self.extract_with_regex(content, language, file_path)
-            return regex_entities, regex_relationships
+            return regex_entities, regex_relationships, context_sample
         
-        return ai_entities, ai_relationships
+        return ai_entities, ai_relationships, context_sample
 
     def extract_with_ai(self, content: str, language: str, file_path: str) -> Tuple[List[CodeEntity], List[CodeRelationship]]:
         """Extract entities and relationships using Vertex AI."""
@@ -219,7 +350,17 @@ class CodeParser:
                     for key, value in entity_data.items():
                         if key not in ['name', 'entity_type', 'description', 'properties'] and value is not None:
                             properties[key] = value
-                            
+                    
+                    # Extract code sample from the original content
+                    line_number = properties.get('line_number', 0)
+                    code_length = properties.get('code_length', 20)
+                    if line_number > 0:
+                        lines = content.split('\n')
+                        start_line = max(0, line_number - 3)
+                        end_line = min(len(lines), line_number + code_length + 3)
+                        code_sample = '\n'.join(lines[start_line:end_line])
+                        properties['context_sample'] = code_sample
+                    
                     entities.append(CodeEntity(
                         name=entity_data.get('name'),
                         entity_type=entity_data.get('entity_type'),
@@ -394,7 +535,7 @@ class CodeParser:
                     
                 # Get surrounding code for description
                 start_pos = max(0, match.start() - 100)
-                end_pos = min(len(content), match.end() + 100)
+                end_pos = min(len(content), match.end() + 200)
                 context_code = content[start_pos:end_pos]
                 
                 # Add entity with enhanced metadata
@@ -407,7 +548,7 @@ class CodeParser:
                         "original_name": name,  # Store the original name for reference
                         "line_number": line_start,
                         "code_length": line_end - line_start,
-                        "context_sample": context_code[:200] if len(context_code) > 200 else context_code,
+                        "context_sample": context_code[:500] if len(context_code) > 500 else context_code,
                         "source_file": filename
                     }
                 )
@@ -557,7 +698,7 @@ def code_parser_entrypoint(cloud_event):
             content = raw_content.decode('utf-8', errors='replace')
 
         # Parse the code
-        entities, relationships = parser.parse_content(file_name, content)
+        entities, relationships, context_sample = parser.parse_content(file_name, content)
         
         # Prepare data for upload with improved repo_id extraction
         repo_id = None
@@ -574,7 +715,8 @@ def code_parser_entrypoint(cloud_event):
             "filename": file_name,
             "original_path": file_path_from_metadata or file_name,
             "entities": [e.to_dict() for e in entities],
-            "relationships": [r.to_dict() for r in relationships]
+            "relationships": [r.to_dict() for r in relationships],
+            "context_sample": context_sample
         }
         
         # Upload results to the parsed data bucket

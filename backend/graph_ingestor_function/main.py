@@ -9,8 +9,8 @@ from vertexai.generative_models import GenerativeModel
 
 # Initialize clients (globally for better performance in Cloud Functions)
 storage_client = storage.Client()
-vertexai.init(project=os.environ.get('GCP_PROJECT_ID'), location=os.environ.get('GCP_REGION'))
-embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-004")
+vertexai.init(project=os.environ.get('GCP_PROJECT_ID'), location='us-central1')
+embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-large-exp-03-07")
 
 # Neo4j AuraDB connection details (get these from Aura Console)
 NEO4J_URI = os.getenv("NEO4J_URI")
@@ -58,6 +58,7 @@ def ingest_data_to_neo4j(parsed_data, session):
     filename = parsed_data.get('filename')
     entities = parsed_data.get('entities', [])
     relationships = parsed_data.get('relationships', [])
+    context_sample = parsed_data.get('context_sample', '')
 
     if not filename:
         print("Skipping ingestion: filename is missing from parsed data.")
@@ -101,15 +102,22 @@ def ingest_data_to_neo4j(parsed_data, session):
     elif file_extension in ['.html', '.xml', '.json', '.yaml', '.yml', '.csv', '.dat']:
         file_type = "DataFile"
     
-    # Create the File node with appropriate type
-    file_name = os.path.basename(filename)
+    # Create the File node with context sample
     session.run(
-        f"MERGE (f:{file_type}:File {{path: $filename}}) SET f.repo_id = $repo_id, f.name = $file_name, f.extension = $extension",
-        filename=filename, repo_id=repo_id, file_name=file_name, extension=file_extension
+        f"MERGE (f:{file_type}:File {{path: $filename}}) " 
+        "SET f.repo_id = $repo_id, f.name = $file_name, "
+        "f.extension = $extension, f.context_sample = $context_sample",
+        filename=filename, 
+        repo_id=repo_id, 
+        file_name=os.path.basename(filename), 
+        extension=file_extension,
+        context_sample=context_sample
     )
 
     # Track import files for later processing
     import_entities = []
+    # Track operation entities for specialized handling
+    operation_entities = []
 
     # Comprehensive mapping of entity types based on user requirements
     label_mapping = {
@@ -157,7 +165,10 @@ def ingest_data_to_neo4j(parsed_data, session):
         'import': 'Import',
         'paragraph': 'Paragraph',
         'enum': 'Enum',
-        'define': 'Define'
+        'define': 'Define',
+        
+        # Special handling for operations
+        'operation': 'Operation'
     }
 
     # Ingest all entities with improved labeling and property handling
@@ -170,6 +181,11 @@ def ingest_data_to_neo4j(parsed_data, session):
         # Handle imports differently
         if entity_type.lower() == 'import':
             import_entities.append(entity)
+            continue
+            
+        # Handle operations differently
+        if entity_type.lower() == 'operation':
+            operation_entities.append(entity)
             continue
             
         # Ensure entity_type is a string before using lower()
@@ -193,6 +209,14 @@ def ingest_data_to_neo4j(parsed_data, session):
             'embedding': embedding,
             'repo_id': repo_id
         }
+        
+        # Add context_sample (code snippet) if available
+        context_sample = properties.get('context_sample', '')
+        if not context_sample and 'code' in entity:
+            context_sample = entity.get('code', '')
+        if context_sample:
+            property_params['context_sample'] = context_sample
+            property_cypher += ", e.context_sample = $context_sample"
         
         # Add original_name if available
         if properties.get('original_name'):
@@ -229,6 +253,50 @@ def ingest_data_to_neo4j(parsed_data, session):
         
         session.run(cypher, property_params)
 
+    # Process operations specially to optimize for retrieval
+    for entity in operation_entities:
+        entity_name = entity.get('name')
+        description = entity.get('description', '')
+        
+        # Generate embedding for the description
+        embedding = generate_embeddings(description)
+        
+        # Extract properties from the enhanced parser output
+        properties = entity.get('properties', {})
+        code_snippet = properties.get('code_snippet', '')
+        operation_type = properties.get('operation_type', 'operation')
+        source_file = properties.get('source_file', os.path.basename(filename))
+        
+        # Create a special Operation node with optimized properties
+        cypher = """
+        MATCH (f:File {path: $file_path})
+        MERGE (o:Operation {name: $name, file_path: $file_path})
+        ON CREATE SET o.description = $description, 
+                      o.embedding = $embedding,
+                      o.code_snippet = $code_snippet, 
+                      o.operation_type = $operation_type,
+                      o.source_file = $source_file,
+                      o.repo_id = $repo_id
+        ON MATCH SET o.description = $description, 
+                     o.embedding = $embedding,
+                     o.code_snippet = $code_snippet,
+                     o.operation_type = $operation_type,
+                     o.source_file = $source_file,
+                     o.repo_id = $repo_id
+        MERGE (f)-[:CONTAINS_OPERATION]->(o)
+        """
+        
+        session.run(cypher, {
+            'file_path': filename,
+            'name': entity_name,
+            'description': description,
+            'embedding': embedding,
+            'code_snippet': code_snippet,
+            'operation_type': operation_type,
+            'source_file': source_file,
+            'repo_id': repo_id
+        })
+    
     # Process imports after all entities are created
     for import_entity in import_entities:
         import_name = import_entity.get('name')
