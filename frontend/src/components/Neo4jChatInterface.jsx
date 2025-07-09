@@ -232,7 +232,7 @@ function Neo4jChatInterface({ repoId }) {
     e.preventDefault();
     if (!chatQuery.trim() || !selectedFile) return;
     
-    const userMessage = { sender: 'user', text: chatQuery };
+    const userMessage = { sender: 'user', text: chatQuery, timestamp: new Date() };
     setChatHistory(prev => [...prev, userMessage]);
     setIsChatLoading(true);
     setChatQuery('');
@@ -264,7 +264,8 @@ function Neo4jChatInterface({ repoId }) {
         const aiMessage = { 
           sender: 'ai', 
           text: response.data.response,
-          context_used: response.data.context_used || ""
+          context_used: response.data.context_used || "",
+          timestamp: new Date()
         };
         setChatHistory(prev => [...prev, aiMessage]);
         
@@ -275,7 +276,8 @@ function Neo4jChatInterface({ repoId }) {
       } else {
         const errorMessage = { 
           sender: 'ai', 
-          text: 'Sorry, I encountered an error processing your request. Please try again.' 
+          text: 'Sorry, I encountered an error processing your request. Please try again.',
+          timestamp: new Date()
         };
         setChatHistory(prev => [...prev, errorMessage]);
       }
@@ -283,7 +285,8 @@ function Neo4jChatInterface({ repoId }) {
       console.error('Error sending chat query:', error);
       const errorMessage = { 
         sender: 'ai', 
-        text: `Error: ${error.message}. Please try again.` 
+        text: `Error: ${error.message}. Please try again.`,
+        timestamp: new Date() 
       };
       setChatHistory(prev => [...prev, errorMessage]);
     } finally {

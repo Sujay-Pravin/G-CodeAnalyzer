@@ -54,8 +54,13 @@ function ChatPanel({
         <div className="structured-ai-response">
           {/* Code snippet with syntax highlighting */}
           <div className="code-snippet">
-            <SyntaxHighlighter language={language} style={docco}>
-              {codeSnippet}
+            <SyntaxHighlighter 
+              language={language} 
+              style={docco}
+              wrapLines={true}
+              showLineNumbers={true}
+            >
+              {String(codeSnippet)}
             </SyntaxHighlighter>
           </div>
           
@@ -75,7 +80,64 @@ function ChatPanel({
       );
     }
     
-    // Use marked to parse markdown for non-structured responses
+    // Handle regular code blocks with SyntaxHighlighter for non-structured responses
+    const codeBlockRegex = /```(\w+)?\n([\s\S]+?)\n```/g;
+    let lastIndex = 0;
+    const parts = [];
+    let match;
+    
+    while ((match = codeBlockRegex.exec(text)) !== null) {
+      // Add text before code block
+      if (match.index > lastIndex) {
+        const textBeforeCode = text.substring(lastIndex, match.index);
+        parts.push(
+          <div 
+            key={`text-${lastIndex}`}
+            dangerouslySetInnerHTML={{ 
+              __html: DOMPurify.sanitize(marked(textBeforeCode)) 
+            }}
+          />
+        );
+      }
+      
+      // Add code block with syntax highlighting
+      const language = match[1] || '';
+      const code = match[2];
+      parts.push(
+        <div className="code-snippet" key={`code-${match.index}`}>
+          <SyntaxHighlighter 
+            language={language} 
+            style={docco}
+            wrapLines={true}
+            showLineNumbers={true}
+          >
+            {String(code)}
+          </SyntaxHighlighter>
+        </div>
+      );
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    // Add any remaining text after last code block
+    if (lastIndex < text.length) {
+      const remainingText = text.substring(lastIndex);
+      parts.push(
+        <div 
+          key={`text-end`}
+          dangerouslySetInnerHTML={{ 
+            __html: DOMPurify.sanitize(marked(remainingText)) 
+          }}
+        />
+      );
+    }
+    
+    // If we parsed any code blocks, return the parts array
+    if (parts.length > 0) {
+      return <>{parts}</>;
+    }
+    
+    // Otherwise use marked to parse markdown
     const renderer = new marked.Renderer();
     
     // Customize code block rendering to include syntax highlighting
