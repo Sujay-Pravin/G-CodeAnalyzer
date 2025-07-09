@@ -691,6 +691,7 @@ def chat_with_graph():
     repo_id = data.get('repo_id')
     file_path = data.get('file_path')
     context_json = data.get('context')
+    is_repo_context = data.get('is_repo_context', False)
 
     if not user_query:
         app.logger.warning("Chat query received with no 'query' field.")
@@ -711,13 +712,16 @@ def chat_with_graph():
         with driver.session() as session:
             app.logger.info("Retrieving context...")
             
-            # Use file-specific context if file_path is provided
-            if file_path and repo_id:
+            # Determine which context retrieval method to use based on the request
+            if is_repo_context:
+                app.logger.info(f"Using repository-wide context for repo_id: {repo_id}")
+                graph_context = retrieve_graph_context(query_embedding, user_query, session)
+            elif file_path and repo_id:
                 app.logger.info(f"Using file-specific context for {file_path}")
                 graph_context = retrieve_file_specific_context(query_embedding, user_query, repo_id, file_path, session, context_json)
             else:
-                app.logger.info("Using general graph context")
-            graph_context = retrieve_graph_context(query_embedding, user_query, session)
+                app.logger.info("Using general graph context as fallback")
+                graph_context = retrieve_graph_context(query_embedding, user_query, session)
                 
             app.logger.info(f"Context retrieved: {'Context found' if graph_context else 'No context found'}")
 
@@ -735,8 +739,33 @@ def chat_with_graph():
                 content = msg.get('content', '')
                 conversation_context += f"{role.capitalize()}: {content}\n"
             
-        # Customize the prompt based on whether we're using file-specific context
-        if file_path:
+        # Customize the prompt based on context mode
+        if is_repo_context:
+            prompt = f"""
+            You are a codebase expert assistant. Provide detailed technical explanations about the entire repository using ONLY the context below.
+            Response guidelines:
+            - Keep responses concise and under 300 words total
+            - Be direct and focused on answering exactly what was asked
+            - Focus on the repository's architecture, key components, and relationships between files
+            - Provide cross-file insights and high-level understanding
+            - Include only the most important implementation details
+            - Never add disclaimers or conversational fluff
+            - If referring to code snippets, always include them in a code block
+            - Format code as:
+              ```
+              // The actual code snippet being discussed
+              ```
+            
+            {conversation_context}
+            
+            User Question: {user_query}
+            
+            Repository Context:
+            ---
+            {graph_context}
+            ---
+            """
+        elif file_path:
             prompt = f"""
             You are a codebase expert assistant. Provide detailed technical explanations about the file {file_path} using ONLY the context below.
             Response guidelines:
@@ -762,34 +791,34 @@ def chat_with_graph():
             ---
             """
         else:
-        prompt = f"""
-        You are a codebase expert assistant. Provide detailed technical explanations using ONLY the context below.
-        Response guidelines:
-        - Keep responses concise and under 200 words total
-        - Be direct and focused on answering exactly what was asked
-        - Focus on code functionality, relationships, and structure
-        - Include only the most important implementation details
-        - Never add disclaimers or conversational fluff
-        - ALWAYS start your response with the relevant code snippet in a code block
-        - Format explanations as:
-              ```language
-          // The actual code snippet being discussed
-              ```
-          
-          [File] → [Entity]: (IMPORTANT: Use only the base filename without any path, e.g. "main.py → function_name" not "cloned_repos/xyz/main.py → function_name")
-          - Purpose: [Concise purpose]
-          - Implementation: [Key technical details]
-          - Relationships: [Connections to other entities]
-        
-        {conversation_context}
-        
-        User Question: {user_query}
-        
-        Context from Knowledge Graph:
-        ---
-        {graph_context}
-        ---
-        """
+            prompt = f"""
+            You are a codebase expert assistant. Provide detailed technical explanations using ONLY the context below.
+            Response guidelines:
+            - Keep responses concise and under 200 words total
+            - Be direct and focused on answering exactly what was asked
+            - Focus on code functionality, relationships, and structure
+            - Include only the most important implementation details
+            - Never add disclaimers or conversational fluff
+            - ALWAYS start your response with the relevant code snippet in a code block
+            - Format explanations as:
+                ```language
+                // The actual code snippet being discussed
+                ```
+                
+                [File] → [Entity]: (IMPORTANT: Use only the base filename without any path, e.g. "main.py → function_name" not "cloned_repos/xyz/main.py → function_name")
+                - Purpose: [Concise purpose]
+                - Implementation: [Key technical details]
+                - Relationships: [Connections to other entities]
+            
+            {conversation_context}
+            
+            User Question: {user_query}
+            
+            Context from Knowledge Graph:
+            ---
+            {graph_context}
+            ---
+            """
             
         app.logger.info("Calling Generative Model (Gemini)...")
         response = generative_model.generate_content(

@@ -63,6 +63,18 @@ function FileList({ files, selectedFile, onFileSelect, isLoading }) {
     }));
   };
   
+  // Handle repo context selection
+  const handleRepoContextSelect = () => {
+    // Create a virtual "file" object for repo context
+    const repoContextObj = {
+      path: "__repo_context__",
+      name: "Entire Repository",
+      isRepoContext: true
+    };
+    
+    onFileSelect(repoContextObj);
+  };
+  
   // Render folder structure recursively
   const renderFolderStructure = (structure, path = '', level = 0) => {
     const entries = Object.entries(structure);
@@ -181,6 +193,21 @@ function FileList({ files, selectedFile, onFileSelect, isLoading }) {
     
     return (
       <div className="file-tree">
+        {/* Repo Context Option */}
+        <div 
+          className={`repo-context-item ${selectedFile && selectedFile.isRepoContext ? 'selected' : ''}`}
+          onClick={handleRepoContextSelect}
+        >
+          <div className="file-item-inner">
+            <svg className="repo-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span className="repo-name">Repo Context</span>
+          </div>
+        </div>
+        
         {renderFolderStructure(folderStructure)}
       </div>
     );

@@ -6,6 +6,7 @@ import GraphControls from './GraphControls';
 import GraphView from './GraphView';
 import './Neo4jChatInterface.css';
 
+// Updated to match the backend API from app.py
 const RAG_API_URL = 'http://localhost:5001/api/chat';
 const BASE_API_URL = 'http://localhost:5001';
 
@@ -82,6 +83,43 @@ function Neo4jChatInterface({ repoId }) {
     setSelectedFile(file);
     // Don't clear chat history when changing files
     // setChatHistory([]);
+    
+    // If we're selecting repo context, we don't need to fetch file data or graph
+    if (file.isRepoContext) {
+      setFileData(null);
+      setIsGraphLoading(false);
+      setIsFileDataLoading(false);
+      
+      // Set a generic graph data for visualization - just show repository nodes
+      // This could be enhanced to show a high-level structure of the repo
+      const repoGraphData = {
+        nodes: [
+          { 
+            id: 'repo', 
+            name: 'Repository',
+            type: 'Repository',
+            description: 'Repository root'
+          }
+        ],
+        links: []
+      };
+      
+      setGraphData(repoGraphData);
+      
+      // Set up filters for repo mode
+      setGraphFilters({
+        nodeTypes: ['Repository'],
+        relationshipTypes: [],
+        showAllNodeTypes: true,
+        showAllRelationshipTypes: true,
+        enabledNodeTypes: new Set(['Repository']),
+        enabledRelationshipTypes: new Set()
+      });
+      
+      return;
+    }
+    
+    // For regular file selection, proceed with the normal flow
     setIsFileDataLoading(true);
     setIsGraphLoading(true);
     
@@ -200,16 +238,40 @@ function Neo4jChatInterface({ repoId }) {
     setChatQuery('');
     
     try {
-      const response = await axios.post(RAG_API_URL, {
+      // Prepare request data based on whether we're in repo context or file context
+      const requestData = {
         query: chatQuery,
         repo_id: repoId,
-        file_path: selectedFile.path,
-        context: JSON.stringify(fileData),
-      });
+        history: chatHistory.slice(-5).map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: msg.text
+        }))
+      };
       
-      if (response.data.success) {
-        const aiMessage = { sender: 'ai', text: response.data.response };
+      // If in repo context mode, don't include file_path and context
+      if (selectedFile.isRepoContext) {
+        // For repo context, we only need query and repo_id
+        requestData.is_repo_context = true;
+      } else {
+        // For file context, include file path and context
+        requestData.file_path = selectedFile.path;
+        requestData.context = JSON.stringify(fileData);
+      }
+      
+      const response = await axios.post(RAG_API_URL, requestData);
+      
+      if (response.data && response.data.response) {
+        const aiMessage = { 
+          sender: 'ai', 
+          text: response.data.response,
+          context_used: response.data.context_used || ""
+        };
         setChatHistory(prev => [...prev, aiMessage]);
+        
+        // If there's graph data, we can highlight the relevant nodes based on context
+        if (response.data.context_used && graphData.nodes.length > 0) {
+          highlightRelevantNodes(response.data.context_used);
+        }
       } else {
         const errorMessage = { 
           sender: 'ai', 
@@ -227,6 +289,46 @@ function Neo4jChatInterface({ repoId }) {
     } finally {
       setIsChatLoading(false);
     }
+  };
+  
+  // Function to highlight nodes mentioned in the context
+  const highlightRelevantNodes = (context) => {
+    if (!context || !graphData.nodes.length) return;
+    
+    // Extract function and file names from context
+    const functionNameRegex = /function called '([^']+)'/g;
+    const filePathRegex = /file '([^']+)'/g;
+    const classRegex = /class called '([^']+)'/g;
+    
+    const relevantNames = new Set();
+    let match;
+    
+    // Extract function names
+    while ((match = functionNameRegex.exec(context)) !== null) {
+      relevantNames.add(match[1]);
+    }
+    
+    // Extract class names
+    while ((match = classRegex.exec(context)) !== null) {
+      relevantNames.add(match[1]);
+    }
+    
+    // Extract file names (just the basename)
+    while ((match = filePathRegex.exec(context)) !== null) {
+      const fullPath = match[1];
+      const basename = fullPath.split('/').pop();
+      if (basename) relevantNames.add(basename);
+    }
+    
+    // No relevant names found
+    if (relevantNames.size === 0) return;
+    
+    // Create a custom event to highlight nodes in the graph
+    window.dispatchEvent(new CustomEvent('highlight-nodes', { 
+      detail: { 
+        nodeNames: Array.from(relevantNames)
+      }
+    }));
   };
 
   // Handle graph filter changes

@@ -7,9 +7,15 @@ function GraphView({ graphData, selectedFile, isLoading }) {
   const [currentZoom, setCurrentZoom] = useState(1);
   const [nodeSize, setNodeSize] = useState(8);
   const [linkStrength, setLinkStrength] = useState(0.6);
+  const [highlightedNodes, setHighlightedNodes] = useState(new Set());
   
   // Helper function to get node color
   const getNodeColor = (node) => {
+    // If the node is highlighted, use a brighter color
+    if (highlightedNodes.has(node.id) || highlightedNodes.has(node.name)) {
+      return '#FFD700'; // Gold color for highlighted nodes
+    }
+    
     const typeColors = {
       'Function': '#4285F4',
       'Variable': '#34A853',
@@ -23,7 +29,9 @@ function GraphView({ graphData, selectedFile, isLoading }) {
       'Namespace': '#607D8B',
       'Parameter': '#8BC34A',
       'Operation': '#00BCD4',
-      'source_file': '#FF9800'
+      'source_file': '#FF9800',
+      'File': '#FF9800',
+      'Repository': '#3cb4ff'
     };
     
     return typeColors[node.type] || '#CCCCCC';
@@ -31,6 +39,17 @@ function GraphView({ graphData, selectedFile, isLoading }) {
   
   // Helper function to get link color
   const getLinkColor = (link) => {
+    // If both source and target are highlighted, highlight the link
+    const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+    const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+    const sourceName = typeof link.source === 'object' ? link.source.name : null;
+    const targetName = typeof link.target === 'object' ? link.target.name : null;
+    
+    if ((highlightedNodes.has(sourceId) || (sourceName && highlightedNodes.has(sourceName))) && 
+        (highlightedNodes.has(targetId) || (targetName && highlightedNodes.has(targetName)))) {
+      return '#FFD700'; // Gold color for highlighted links
+    }
+    
     const relationshipColors = {
       'calls': '#4285F4',
       'defines': '#34A853',
@@ -43,7 +62,13 @@ function GraphView({ graphData, selectedFile, isLoading }) {
       'extends': '#795548',
       'references': '#607D8B',
       'contains_operation': '#8BC34A',
-      'returns': '#00BCD4'
+      'returns': '#00BCD4',
+      'CALLS': '#4285F4',
+      'DEFINES': '#34A853',
+      'USES': '#EA4335',
+      'IMPORTS': '#FBBC05',
+      'CONTAINS': '#009688',
+      'DEPENDS_ON': '#FF5722'
     };
     
     return relationshipColors[link.type] || '#AAAAAA';
@@ -59,6 +84,9 @@ function GraphView({ graphData, selectedFile, isLoading }) {
       
       // Reheat the simulation to recalculate positions
       graphRef.current.d3ReheatSimulation();
+      
+      // Reset highlights when graph data changes
+      setHighlightedNodes(new Set());
     }
   }, [graphData, linkStrength]);
   
@@ -111,11 +139,45 @@ function GraphView({ graphData, selectedFile, isLoading }) {
       }
     };
     
+    // Handle highlighting nodes based on chat context
+    const highlightNodes = (e) => {
+      if (!e.detail || !e.detail.nodeNames || !graphData || !graphData.nodes) return;
+      
+      const nodeNames = e.detail.nodeNames;
+      const newHighlightedNodes = new Set(nodeNames);
+      
+      // Find matching nodes by name or id
+      graphData.nodes.forEach(node => {
+        if (nodeNames.includes(node.name) || nodeNames.includes(node.id) || 
+            (node.label && nodeNames.includes(node.label))) {
+          newHighlightedNodes.add(node.id);
+          newHighlightedNodes.add(node.name);
+          
+          // If a node is highlighted, center the graph on it
+          if (graphRef.current) {
+            graphRef.current.centerAt(node.x, node.y, 1000);
+            graphRef.current.zoom(1.5, 1000);
+            setCurrentZoom(1.5);
+            
+            // Only center on the first matching node
+            return;
+          }
+        }
+      });
+      
+      setHighlightedNodes(newHighlightedNodes);
+      
+      if (graphRef.current) {
+        graphRef.current.refresh();
+      }
+    };
+    
     window.addEventListener('graph-center', centerGraph);
     window.addEventListener('graph-reset', resetLayout);
     window.addEventListener('graph-node-size', setNodeSizeEvent);
     window.addEventListener('graph-link-strength', setLinkStrengthEvent);
     window.addEventListener('graph-refresh', refreshGraph);
+    window.addEventListener('highlight-nodes', highlightNodes);
     
     return () => {
       window.removeEventListener('graph-center', centerGraph);
@@ -123,32 +185,52 @@ function GraphView({ graphData, selectedFile, isLoading }) {
       window.removeEventListener('graph-node-size', setNodeSizeEvent);
       window.removeEventListener('graph-link-strength', setLinkStrengthEvent);
       window.removeEventListener('graph-refresh', refreshGraph);
+      window.removeEventListener('highlight-nodes', highlightNodes);
     };
-  }, [linkStrength]);
+  }, [linkStrength, graphData]);
 
   // Handle zoom events to update current zoom level
   const handleZoom = ({ k }) => {
     setCurrentZoom(k);
   };
 
+  // Clear highlighted nodes on click outside
+  const handleBackgroundClick = () => {
+    if (highlightedNodes.size > 0) {
+      setHighlightedNodes(new Set());
+      if (graphRef.current) {
+        graphRef.current.refresh();
+      }
+    }
+  };
+
   // Node canvas object - show labels at high zoom levels
   const getNodeCanvasObject = (node, ctx, globalScale) => {
     const label = node.label || node.id;
     const fontSize = 12 / globalScale;
-    const baseNodeSize = node.type === 'source_file' ? nodeSize * 1.5 : nodeSize;
+    const baseNodeSize = node.type === 'source_file' || node.type === 'File' ? nodeSize * 1.5 : nodeSize;
+    const isHighlighted = highlightedNodes.has(node.id) || highlightedNodes.has(node.name);
     const nodeColor = getNodeColor(node);
 
     // Draw node circle
     ctx.beginPath();
-    ctx.arc(node.x, node.y, baseNodeSize, 0, 2 * Math.PI);
+    ctx.arc(node.x, node.y, baseNodeSize + (isHighlighted ? 2 : 0), 0, 2 * Math.PI);
     ctx.fillStyle = nodeColor;
     ctx.fill();
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 1.5 / globalScale;
-    ctx.stroke();
     
-    // Show labels when zoom > 1.5 or when node is hovered
-    if (currentZoom > 1.5 || node === hoveredNode) {
+    // Add a highlight outline for highlighted nodes
+    if (isHighlighted) {
+      ctx.strokeStyle = '#FFD700';
+      ctx.lineWidth = 2.5 / globalScale;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1.5 / globalScale;
+      ctx.stroke();
+    }
+    
+    // Show labels when zoom > 1.5 or when node is hovered or highlighted
+    if (currentZoom > 1.5 || node === hoveredNode || isHighlighted) {
       ctx.font = `${fontSize}px Sans-Serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -158,7 +240,7 @@ function GraphView({ graphData, selectedFile, isLoading }) {
       const textWidth = ctx.measureText(label).width;
       const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.5);
       
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillStyle = isHighlighted ? 'rgba(255, 215, 0, 0.5)' : 'rgba(0,0,0,0.7)';
       ctx.fillRect(
         node.x - bckgDimensions[0] / 2,
         node.y - bckgDimensions[1] / 2 + baseNodeSize + 4, 
@@ -166,7 +248,7 @@ function GraphView({ graphData, selectedFile, isLoading }) {
         bckgDimensions[1]
       );
       
-      ctx.fillStyle = 'white';
+      ctx.fillStyle = isHighlighted ? 'black' : 'white';
       ctx.fillText(label, node.x, node.y + baseNodeSize + 4);
     }
   };
@@ -176,6 +258,14 @@ function GraphView({ graphData, selectedFile, isLoading }) {
       <div className="graph-view-header">
         <h3>Graph View</h3>
         {selectedFile && <p className="selected-file-info">{selectedFile.path}</p>}
+        {highlightedNodes.size > 0 && (
+          <button 
+            className="clear-highlights-btn"
+            onClick={() => setHighlightedNodes(new Set())}
+          >
+            Clear Highlights
+          </button>
+        )}
       </div>
       
       <div className="graph-container">
@@ -203,7 +293,7 @@ function GraphView({ graphData, selectedFile, isLoading }) {
             nodeLabel={(node) => `${node.label || node.id} (${node.type})`}
             nodeCanvasObject={getNodeCanvasObject}
             nodePointerAreaPaint={(node, color, ctx) => {
-              const baseNodeSize = node.type === 'source_file' ? nodeSize * 1.5 : nodeSize;
+              const baseNodeSize = node.type === 'source_file' || node.type === 'File' ? nodeSize * 1.5 : nodeSize;
               ctx.beginPath();
               ctx.arc(node.x, node.y, baseNodeSize + 2, 0, 2 * Math.PI);
               ctx.fillStyle = color;
@@ -224,8 +314,22 @@ function GraphView({ graphData, selectedFile, isLoading }) {
                 graphRef.current.centerAt(node.x, node.y, 1000);
                 graphRef.current.zoom(1.5, 1000);
                 setCurrentZoom(1.5);
+                
+                // Toggle highlight for this node
+                setHighlightedNodes(prev => {
+                  const newSet = new Set(prev);
+                  if (newSet.has(node.id) || newSet.has(node.name)) {
+                    newSet.delete(node.id);
+                    newSet.delete(node.name);
+                  } else {
+                    newSet.add(node.id);
+                    if (node.name) newSet.add(node.name);
+                  }
+                  return newSet;
+                });
               }
             }}
+            onBackgroundClick={handleBackgroundClick}
             width={800}
             height={600}
           />

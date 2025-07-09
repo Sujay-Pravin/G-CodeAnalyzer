@@ -872,6 +872,7 @@
 .graph-view-header {
   padding: 1rem;
   border-bottom: 1px solid;
+  position: relative;
 }
 
 .light-theme .graph-view-header {
@@ -1068,4 +1069,199 @@
     min-height: 400px;
     margin-bottom: 0.5rem;
   }
+}
+
+/* Add styles for the repo context item */
+.repo-context-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  background-color: rgba(60, 180, 255, 0.1);
+  border: 1px solid rgba(60, 180, 255, 0.2);
+}
+
+.repo-context-item:hover {
+  background-color: rgba(60, 180, 255, 0.15);
+}
+
+.repo-context-item.selected {
+  background-color: rgba(60, 180, 255, 0.25);
+  border: 1px solid rgba(60, 180, 255, 0.4);
+  font-weight: 500;
+}
+
+.repo-context-item .file-item-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.repo-context-item .repo-icon {
+  margin-right: 8px;
+  flex-shrink: 0;
+  color: #3cb4ff;
+}
+
+.repo-context-item .repo-name {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #3cb4ff;
+} 
+
+/* Structured AI response styling */
+.structured-ai-response {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.structured-ai-response .code-snippet {
+  background-color: #f6f8fa;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  position: relative;
+}
+
+.dark-theme .structured-ai-response .code-snippet {
+  background-color: #2a2a2a;
+}
+
+.structured-ai-response .entity-reference {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  margin-bottom: 0.5rem;
+}
+
+.dark-theme .structured-ai-response .entity-reference {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.structured-ai-response .file-name {
+  color: #0d47a1;
+}
+
+.dark-theme .structured-ai-response .file-name {
+  color: #64b5f6;
+}
+
+.structured-ai-response .arrow {
+  opacity: 0.7;
+}
+
+.structured-ai-response .entity-name {
+  color: #e65100;
+}
+
+.dark-theme .structured-ai-response .entity-name {
+  color: #ffb74d;
+}
+
+.structured-ai-response .response-sections {
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.structured-ai-response .response-sections ul {
+  padding-left: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+.structured-ai-response .response-sections li {
+  margin-bottom: 0.25rem;
+}
+
+.structured-ai-response .response-sections p {
+  margin: 0.5rem 0;
+}
+
+/* Fix Graph Controls issues */
+.graph-controls-column .toggle-switch {
+  cursor: pointer;
+}
+
+.graph-controls-column .filter-list {
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  margin: 0.5rem 0;
+}
+
+.graph-controls-column .checkbox-custom {
+  flex-shrink: 0;
+}
+
+.graph-controls-column .node-type-indicator,
+.graph-controls-column .relationship-type-indicator {
+  margin: 0 0.5rem;
+}
+
+.graph-controls-column .control-section {
+  margin-bottom: 1.25rem;
+}
+
+.graph-controls-column .layout-button {
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.graph-controls-column .layout-button svg {
+  margin-right: 0.5rem;
+}
+
+.graph-controls-column .slider-container {
+  margin-top: 0.5rem;
+}
+
+/* Fix for toggle buttons */
+.toggle-all {
+  padding: 0.25rem;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.2s;
+}
+
+.toggle-all:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.dark-theme .toggle-all:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+} 
+
+/* Clear highlights button styling */
+.clear-highlights-btn {
+  position: absolute;
+  right: 1rem;
+  top: 1.25rem;
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.clear-highlights-btn:hover {
+  background-color: #d32f2f;
+}
+
+.dark-theme .clear-highlights-btn {
+  background-color: #c62828;
+}
+
+.dark-theme .clear-highlights-btn:hover {
+  background-color: #b71c1c;
 } 

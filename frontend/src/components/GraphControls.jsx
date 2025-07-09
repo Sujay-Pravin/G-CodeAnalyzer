@@ -1,14 +1,28 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
 function GraphControls({ filters, onFilterChange }) {
   const { 
-    nodeTypes, 
-    relationshipTypes, 
-    showAllNodeTypes, 
-    showAllRelationshipTypes,
-    enabledNodeTypes = new Set(),
-    enabledRelationshipTypes = new Set()
+    nodeTypes = [], 
+    relationshipTypes = [], 
+    showAllNodeTypes = true, 
+    showAllRelationshipTypes = true,
+    enabledNodeTypes,
+    enabledRelationshipTypes
   } = filters;
+
+  // Convert enabledNodeTypes and enabledRelationshipTypes to proper Sets if they aren't already
+  const [enabledNodes, setEnabledNodes] = useState(new Set(enabledNodeTypes || []));
+  const [enabledRelationships, setEnabledRelationships] = useState(new Set(enabledRelationshipTypes || []));
+  
+  // Update local state when props change
+  useEffect(() => {
+    if (enabledNodeTypes) {
+      setEnabledNodes(new Set(enabledNodeTypes));
+    }
+    if (enabledRelationshipTypes) {
+      setEnabledRelationships(new Set(enabledRelationshipTypes));
+    }
+  }, [enabledNodeTypes, enabledRelationshipTypes]);
 
   // Trigger graph refresh when filters change
   useEffect(() => {
@@ -17,14 +31,16 @@ function GraphControls({ filters, onFilterChange }) {
     }, 100);
     
     return () => clearTimeout(timer);
-  }, [enabledNodeTypes, enabledRelationshipTypes]);
+  }, [enabledNodes, enabledRelationships]);
 
   const handleNodeTypeToggle = (type) => {
-    onFilterChange('nodeType', type, !enabledNodeTypes.has(type));
+    const isCurrentlyEnabled = enabledNodes.has(type);
+    onFilterChange('nodeType', type, !isCurrentlyEnabled);
   };
 
   const handleRelationshipTypeToggle = (type) => {
-    onFilterChange('relationshipType', type, !enabledRelationshipTypes.has(type));
+    const isCurrentlyEnabled = enabledRelationships.has(type);
+    onFilterChange('relationshipType', type, !isCurrentlyEnabled);
   };
 
   const handleToggleAllNodeTypes = () => {
@@ -37,6 +53,16 @@ function GraphControls({ filters, onFilterChange }) {
 
   const handleRefreshGraph = () => {
     window.dispatchEvent(new CustomEvent('graph-refresh'));
+  };
+
+  // Check if a node type is enabled
+  const isNodeTypeEnabled = (type) => {
+    return enabledNodes.has(type);
+  };
+  
+  // Check if a relationship type is enabled
+  const isRelationshipTypeEnabled = (type) => {
+    return enabledRelationships.has(type);
   };
 
   return (
@@ -70,7 +96,7 @@ function GraphControls({ filters, onFilterChange }) {
                     <label className="filter-label">
                       <input
                         type="checkbox"
-                        checked={enabledNodeTypes.has(type)}
+                        checked={isNodeTypeEnabled(type)}
                         onChange={() => handleNodeTypeToggle(type)}
                       />
                       <span className="checkbox-custom"></span>
@@ -108,7 +134,7 @@ function GraphControls({ filters, onFilterChange }) {
                     <label className="filter-label">
                       <input
                         type="checkbox"
-                        checked={enabledRelationshipTypes.has(type)}
+                        checked={isRelationshipTypeEnabled(type)}
                         onChange={() => handleRelationshipTypeToggle(type)}
                       />
                       <span className="checkbox-custom"></span>
@@ -221,7 +247,9 @@ const getNodeColor = (type) => {
     'Namespace': '#607D8B',
     'Parameter': '#8BC34A',
     'Operation': '#00BCD4',
-    'source_file': '#FF9800'
+    'source_file': '#FF9800',
+    'File': '#FF9800',
+    'Repository': '#3cb4ff'
   };
   
   return typeColors[type] || '#CCCCCC';
@@ -229,6 +257,19 @@ const getNodeColor = (type) => {
 
 const getRelationshipColor = (type) => {
   const relationshipColors = {
+    'CALLS': '#4285F4',
+    'DEFINES': '#34A853',
+    'USES': '#EA4335',
+    'IMPORTS': '#FBBC05',
+    'INHERITS': '#9C27B0',
+    'IMPLEMENTS': '#3F51B5',
+    'CONTAINS': '#009688',
+    'DEPENDS_ON': '#FF5722',
+    'EXTENDS': '#795548',
+    'REFERENCES': '#607D8B',
+    'CONTAINS_OPERATION': '#8BC34A',
+    'RETURNS': '#00BCD4',
+    // Add lowercase versions for case insensitivity
     'calls': '#4285F4',
     'defines': '#34A853',
     'uses': '#EA4335',
