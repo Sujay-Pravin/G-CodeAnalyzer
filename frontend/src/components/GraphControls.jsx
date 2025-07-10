@@ -148,7 +148,7 @@ function GraphControls({ filters, onFilterChange }) {
           </div>
         </div>
 
-        <div className="control-section">
+        {/* <div className="control-section">
           <div className="control-section-header">
             <h4>Layout Options</h4>
           </div>
@@ -226,7 +226,7 @@ function GraphControls({ filters, onFilterChange }) {
               </div>
             </div>
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   );

@@ -19,6 +19,8 @@
     "react-dom": "^19.1.0",
     "react-force-graph": "^1.29.3",
     "react-force-graph-2d": "^1.27.1",
+    "react-push-notification": "^1.5.4",
+    "react-push-notifications": "^1.0.4",
     "react-syntax-highlighter": "^15.6.1"
   },
   "devDependencies": {

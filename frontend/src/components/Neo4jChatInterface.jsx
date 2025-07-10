@@ -5,6 +5,7 @@ import ChatPanel from './ChatPanel';
 import GraphControls from './GraphControls';
 import GraphView from './GraphView';
 import './Neo4jChatInterface.css';
+import addNotification from 'react-push-notification';
 
 // Updated to match the backend API from app.py
 const RAG_API_URL = 'http://localhost:5001/api/chat';
@@ -27,13 +28,29 @@ function Neo4jChatInterface({ repoId }) {
     showAllNodeTypes: true,
     showAllRelationshipTypes: true,
   });
+
+
+  const entryNotification = () => {
+    addNotification({
+      title : 'Completed processing files',
+      message : 'Visit to continue your analysis',
+      duration : 10000,
+      native : true,
+      // icon : 
+    })
+  }
+
+
   
   // Fetch files when component mounts
   useEffect(() => {
+
+    
     if (repoId) {
       fetchFiles();
+      entryNotification();
     }
-
+    
     // Also set up a listener for CORS/network errors
     const handleError = (event) => {
       if (event.message && event.message.includes("NetworkError")) {
@@ -44,6 +61,7 @@ function Neo4jChatInterface({ repoId }) {
     window.addEventListener('error', handleError);
     return () => window.removeEventListener('error', handleError);
   }, [repoId]);
+
 
   // Fetch file list with fallback URLs
   const fetchFiles = async () => {

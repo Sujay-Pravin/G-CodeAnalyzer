@@ -309,7 +309,7 @@
   margin: 0;
   font-size: 1.25rem;
   white-space: nowrap;
-  overflow: hidden;
+  overflow: scroll;
   text-overflow: ellipsis;
   display: flex;
   align-items: center;
